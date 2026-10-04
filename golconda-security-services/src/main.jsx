@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { supabase } from "./supabase";
 import { createRoot } from "react-dom/client";
 import {
   Shield, ShieldCheck, Menu, X, ArrowUpRight, ArrowRight, LockKeyhole,
@@ -72,10 +73,35 @@ function App() {
   }
 
   function openLogin(event) {
-    event.preventDefault();
-    setLoginOpen(true);
-    setLoginMessage("Team login is a placeholder in this first version. Secure authentication will be added in the next phase.");
+    
+async function handleLogin(event) {
+  event.preventDefault();
+  setLoginMessage("");
+
+  const { data, error } = await supabase.auth.signInWithPassword({
+    email: login.userId.trim(),
+    password: login.password,
+  });
+
+  if (error) {
+    setLoginMessage("Login failed. Check your email and password.");
+    return;
   }
+
+  const { data: admin, error: adminError } = await supabase
+    .from("admin_users")
+    .select("user_id")
+    .eq("user_id", data.user.id)
+    .maybeSingle();
+
+  if (adminError || !admin) {
+    await supabase.auth.signOut();
+    setLoginMessage("Access denied. This account is not an authorized admin.");
+    return;
+  }
+
+  setLoginMessage("Admin login successful.");
+}
 
   return <>
     <div className="announcement"><span className="status-dot"/> PHYSICAL SECURITY <i/> CYBERSECURITY <i/> AWARENESS <span className="announcement-right">Security. Intelligence. Trust.</span></div>
@@ -201,7 +227,8 @@ function App() {
 
     <footer className="site-footer"><div className="container footer-main"><div className="footer-brand"><Brand footer/><p>Security. Intelligence. Trust.<br/>Protecting people, systems and possibilities.</p></div><div className="footer-col"><b>Explore</b><a href="#services">Services</a><a href="#profile">Company Profile</a><a href="#events">Upcoming Events</a></div><div className="footer-col"><b>Get involved</b><a href="#careers">Work With Us</a><a href="#notifications">Notifications</a><a href="#contact">Contact Us</a></div><div className="footer-col"><b>Team access</b><button className="footer-login" onClick={()=>setLoginOpen(true)}>Team Login <ArrowUpRight size={14}/></button><span>Private portal · Coming next</span></div></div><div className="container footer-bottom"><span>© {new Date().getFullYear()} Golconda Security Services. All rights reserved.</span><span>Built with care. Designed for trust.</span><a href="#home">Back to top ↑</a></div></footer>
 
-    {loginOpen && <div className="modal-backdrop" role="presentation" onClick={()=>setLoginOpen(false)}><div className="login-modal" role="dialog" aria-modal="true" aria-labelledby="login-title" onClick={e=>e.stopPropagation()}><button className="modal-close" onClick={()=>setLoginOpen(false)} aria-label="Close login"><X/></button><div className="modal-logo"><Shield size={36}/></div><span className="eyebrow">GSS PRIVATE PORTAL</span><h2 id="login-title">Team <em>access.</em></h2><p>This is a visual placeholder only. Authentication is not enabled in this version.</p><form onSubmit={e=>{e.preventDefault();setLoginMessage("Login is not active yet. Do not enter a real password here. Secure authentication will be configured in the next phase.");}}><label>User ID<input value={login.userId} onChange={e=>setLogin({...login,userId:e.target.value})} placeholder="Team member ID" autoComplete="off"/></label><label>Password<input type="password" value={login.password} onChange={e=>setLogin({...login,password:e.target.value})} placeholder="Not active yet" autoComplete="new-password"/></label><button className="button button-gold button-full" type="submit">Continue <ArrowRight size={16}/></button></form>{loginMessage && <p className="form-notice">{loginMessage}</p>}<p className="privacy-note"><LockKeyhole size={13}/> Never enter a real password in this placeholder.</p></div></div>}
+    {loginOpen && <div className="modal-backdrop" role="presentation" onClick={()=>setLoginOpen(false)}><div className="login-modal" role="dialog" aria-modal="true" aria-labelledby="login-title" onClick={e=>e.stopPropagation()}><button className="modal-close" onClick={()=>setLoginOpen(false)} aria-label="Close login"><X/></button><div className="modal-logo"><Shield size={36}/></div><span className="eyebrow">GSS PRIVATE PORTAL</span><h2 id="login-title">Team <em>access.</em></h2><p>This is a visual placeholder only. Authentication is not enabled in this version.</p
+    <form onSubmit={handleLogin}><label>Email Address<input value={login.userId} onChange={e=>setLogin({...login,userId:e.target.value})} placeholder="Team member ID" autoComplete="off"/></label><label>Password<input type="password" value={login.password} onChange={e=>setLogin({...login,password:e.target.value})} placeholder="Not active yet" autoComplete="new-password"/></label><button className="button button-gold button-full" type="submit">Continue <ArrowRight size={16}/></button></form>{loginMessage && <p className="form-notice">{loginMessage}</p>}<p className="privacy-note"><LockKeyhole size={13}/> Never enter a real password in this placeholder.</p></div></div>}
     {notice && !loginOpen && <div className="toast" role="status">{notice}<button onClick={()=>setNotice("")} aria-label="Dismiss"><X size={16}/></button></div>}
   </>;
 }
