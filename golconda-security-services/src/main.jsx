@@ -130,7 +130,9 @@ function App() {
         <button className="menu-toggle" aria-label="Toggle navigation" onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? <X/> : <Menu/>}</button>
         <nav className={menuOpen ? "nav-links open" : "nav-links"}>
           {navItems.map(([label, href]) => <a key={label} href={href} onClick={() => setMenuOpen(false)}>{label}</a>)}
-          <button className="login-nav" onClick={() => {setLoginOpen(true); setMenuOpen(false); setLoginMessage("Team login is a placeholder in this first version.");}}><LockKeyhole size={15}/> Team Login</button>
+         <button className="login-nav" onClick={openLogin}>
+  <LockKeyhole size={15}/> Team Login
+</button>
         </nav>
       </div>
     </header>
@@ -244,7 +246,9 @@ function App() {
       </section>
     </main>
 
-    <footer className="site-footer"><div className="container footer-main"><div className="footer-brand"><Brand footer/><p>Security. Intelligence. Trust.<br/>Protecting people, systems and possibilities.</p></div><div className="footer-col"><b>Explore</b><a href="#services">Services</a><a href="#profile">Company Profile</a><a href="#events">Upcoming Events</a></div><div className="footer-col"><b>Get involved</b><a href="#careers">Work With Us</a><a href="#notifications">Notifications</a><a href="#contact">Contact Us</a></div><div className="footer-col"><b>Team access</b><button className="footer-login" onClick={()=>setLoginOpen(true)}>Team Login <ArrowUpRight size={14}/></button><span>Private portal · Coming next</span></div></div><div className="container footer-bottom"><span>© {new Date().getFullYear()} Golconda Security Services. All rights reserved.</span><span>Built with care. Designed for trust.</span><a href="#home">Back to top ↑</a></div></footer>
+    <footer className="site-footer"><div className="container footer-main"><div className="footer-brand"><Brand footer/><p>Security. Intelligence. Trust.<br/>Protecting people, systems and possibilities.</p></div><div className="footer-col"><b>Explore</b><a href="#services">Services</a><a href="#profile">Company Profile</a><a href="#events">Upcoming Events</a></div><div className="footer-col"><b>Get involved</b><a href="#careers">Work With Us</a><a href="#notifications">Notifications</a><a href="#contact">Contact Us</a></div><div className="footer-col"><b>Team access</b><button className="footer-login" onClick={openLogin}>
+  Team Login <ArrowUpRight size={14}/>
+</button><span>Private portal · Coming next</span></div></div><div className="container footer-bottom"><span>© {new Date().getFullYear()} Golconda Security Services. All rights reserved.</span><span>Built with care. Designed for trust.</span><a href="#home">Back to top ↑</a></div></footer>
 
     {loginOpen && <div className="modal-backdrop" role="presentation" onClick={()=>setLoginOpen(false)}><div className="login-modal" role="dialog" aria-modal="true" aria-labelledby="login-title" onClick={e=>e.stopPropagation()}><button className="modal-close" onClick={()=>setLoginOpen(false)} aria-label="Close login"><X/></button><div className="modal-logo"><Shield size={36}/></div><span className="eyebrow">GSS PRIVATE PORTAL</span><h2 id="login-title">Team <em>access.</em></h2>
     <form onSubmit={handleLogin}><label>Email Address<input value={login.userId} onChange={e=>setLogin({...login,userId:e.target.value})} placeholder="Team member ID" autoComplete="off"/></label><label>Password<input type="password" value={login.password} onChange={e=>setLogin({...login,password:e.target.value})} placeholder="Not active yet" autoComplete="new-password"/></label><button className="button button-gold button-full" type="submit">Continue <ArrowRight size={16}/></button></form>{loginMessage && <p className="form-notice">{loginMessage}</p>}<p className="privacy-note"><LockKeyhole size={13}/> Never enter a real password in this placeholder.</p></div></div>}
