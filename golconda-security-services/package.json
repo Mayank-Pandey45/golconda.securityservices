@@ -4,7 +4,7 @@
 "private": true,
 "type": "module",
 "scripts": {
-"dev": "concurrently \"npm:dev:client\" \"npm:dev:server\"",
+"dev": "concurrently \"npm:dev:client\"\"npm:dev:server\"",
 "dev:client": "vite --host 0.0.0.0",
 "dev:server": "node --watch server/index.js",
 "build": "vite build",
