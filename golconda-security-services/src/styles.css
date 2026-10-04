@@ -16,3 +16,75 @@
 .profile-panel{background:linear-gradient(110deg,#111b23,#101820 70%)}
 .event-date{background:linear-gradient(150deg,#132b38,#151d21)}
 .button-gold{background:linear-gradient(110deg,#1685bd,#d9edf7);border-color:#1685bd;color:#07141c}
+
+/* Complaints section background and layout fix */
+#complaints {
+  background: #f1f5f9 !important;
+  color: #172033;
+  padding: 80px 0;
+  overflow: hidden;
+}
+
+#complaints .careers-grid {
+  align-items: center;
+  gap: 40px;
+}
+
+#complaints h2,
+#complaints h3 {
+  color: #172033;
+}
+
+#complaints p {
+  color: #475569;
+  line-height: 1.7;
+}
+
+#complaints .career-perks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+#complaints .career-perks span {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  background: #ffffff;
+  color: #334155;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+
+#complaints .form-card {
+  width: 100%;
+  box-sizing: border-box;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 16px;
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.07);
+}
+
+#complaints .form-card label {
+  color: #334155;
+}
+
+#complaints .form-card input,
+#complaints .form-card select,
+#complaints .form-card textarea {
+  box-sizing: border-box;
+  max-width: 100%;
+}
+
+@media (max-width: 768px) {
+  #complaints {
+    padding: 52px 0;
+  }
+
+  #complaints .careers-grid {
+    grid-template-columns: 1fr;
+    gap: 28px;
+  }
+}
