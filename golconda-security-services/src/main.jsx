@@ -72,22 +72,41 @@ function App() {
     }
   }
 
-  function openLogin(event) {
-    
-async function handleLogin(event) {
-  event.preventDefault();
-  setLoginMessage("");
-
-  const { data, error } = await supabase.auth.signInWithPassword({
-    email: login.userId.trim(),
-    password: login.password,
-  });
-
-  if (error) {
-    setLoginMessage("Login failed. Check your email and password.");
-    return;
+  
+  function openLogin() {
+    setLoginOpen(true);
+    setMenuOpen(false);
+    setLoginMessage("");
   }
 
+  async function handleLogin(event) {
+    event.preventDefault();
+    setLoginMessage("");
+
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email: login.userId.trim(),
+      password: login.password,
+    });
+
+    if (error) {
+      setLoginMessage("Login failed. Check your email and password.");
+      return;
+    }
+
+    const { data: admin, error: adminError } = await supabase
+      .from("admin_users")
+      .select("user_id")
+      .eq("user_id", data.user.id)
+      .maybeSingle();
+
+    if (adminError || !admin) {
+      await supabase.auth.signOut();
+      setLoginMessage("Access denied. This account is not an authorized admin.");
+      return;
+    }
+
+    setLoginMessage("Admin login successful.");
+  }
   const { data: admin, error: adminError } = await supabase
     .from("admin_users")
     .select("user_id")
