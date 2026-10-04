@@ -1,26 +1,26 @@
 {
-  "name": "golconda-security-services",
-  "version": "1.0.0",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "dev": "concurrently \"npm:dev:client\" \"npm:dev:server\"",
-    "dev:client": "vite --host 0.0.0.0",
-    "dev:server": "node --watch server/index.js",
-    "build": "vite build",
-    "start": "node server/index.js"
-  },
-  "dependencies": {
-    "cors": "^2.8.5",
-    "express": "^4.21.2",
-    "lucide-react": "^0.468.0",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1"
-    "@supabase/supabase-js": "^2.57.0",
-  },
-  "devDependencies": {
-    "@vitejs/plugin-react": "^4.3.4",
-    "concurrently": "^9.1.0",
-    "vite": "^6.0.5"
-  }
+"name": "golconda-security-services",
+"version": "1.0.0",
+"private": true,
+"type": "module",
+"scripts": {
+"dev": "concurrently "npm:dev:client" "npm:dev:server"",
+"dev:client": "vite --host 0.0.0.0",
+"dev:server": "node --watch server/index.js",
+"build": "vite build",
+"start": "node server/index.js"
+},
+"dependencies": {
+"@supabase/supabase-js": "^2.57.0",
+"cors": "^2.8.5",
+"express": "^4.21.2",
+"lucide-react": "^0.468.0",
+"react": "^18.3.1",
+"react-dom": "^18.3.1"
+},
+"devDependencies": {
+"@vitejs/plugin-react": "^4.3.4",
+"concurrently": "^9.1.0",
+"vite": "^6.0.5"
+}
 }
