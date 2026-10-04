@@ -688,7 +688,7 @@ function App() {
             <p className="form-intro">Your details remain strictly confidential.</p>
             <label>Your Name<input required value={complaintForm.complainant_name} onChange={e=>setComplaintForm({...complaintForm, complainant_name: e.target.value})} placeholder="Full name"/></label>
             <label>Your Role<select value={complaintForm.role} onChange={e=>setComplaintForm({...complaintForm, role: e.target.value})}><option>Security Guard</option><option>Supervisor</option><option>Field Officer</option><option>Client / Facility Manager</option></select></label>
-            <label>Phone Number<input required value={complaintForm.phone} onChange={e=>setComplaintForm({...complaintForm, phone: e.target.value})} placeholder="9032545115"/></label>
+            <label>Phone Number<input required value={complaintForm.phone} onChange={e=>setComplaintForm({...complaintForm, phone: e.target.value})} placeholder="9xxxxxxxxx"/></label>
             <label>Subject<input required value={complaintForm.subject} onChange={e=>setComplaintForm({...complaintForm, subject: e.target.value})} placeholder="Brief subject of complaint"/></label>
             <label>Complaint Details<textarea required rows="3" value={complaintForm.details} onChange={e=>setComplaintForm({...complaintForm, details: e.target.value})} placeholder="Provide full details..."/></label>
             <button className="button button-gold button-full" type="submit">Submit Complaint <ArrowRight size={16}/></button>
