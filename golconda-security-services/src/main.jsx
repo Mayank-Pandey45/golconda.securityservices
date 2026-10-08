@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from "react";
-import { supabase } from "./supabase";
+import { supabase, supabaseError } from "./supabase";
+import { apiUrl } from "./api";
+import { formatUtcDate, toDateInputValue, toUtcDateTimestamp } from "./dateOnly";
 import { createRoot } from "react-dom/client";
 import {
   Shield, ShieldCheck, Menu, X, ArrowUpRight, ArrowRight, LockKeyhole,
@@ -9,23 +11,7 @@ import {
 } from "lucide-react";
 import "./styles.css";
 
-const initialServices = [
-  { id: "1", icon: ShieldCheck, number: "01", title: "Security Guard / ASO", tag: "PHYSICAL SECURITY", description: "Professional security guard deployment and Assistant Security Officer services for workplaces, facilities and events." },
-  { id: "2", icon: Shield, number: "02", title: "VPAT", tag: "ASSESSMENT SERVICES", description: "Assessment service information and scope can be tailored to your organization's requirements." },
-  { id: "3", icon: Globe, number: "03", title: "Web Security", tag: "DIGITAL DEFENCE", description: "Authorized website security reviews, vulnerability assessment and practical remediation guidance." },
-  { id: "4", icon: Code2, number: "04", title: "Web Designing", tag: "DIGITAL PRESENCE", description: "Responsive business websites with clear information architecture, accessible design and polished user experiences." },
-  { id: "5", icon: GraduationCap, number: "05", title: "Cyber Awareness", tag: "EDUCATION & OUTREACH", description: "Cyber safety programs, awareness sessions and workshops for students, teams and communities." }
-];
-
-const initialEventsList = [
-  { id: "e1", date: "COMING SOON", type: "AWARENESS PROGRAM", title: "Cyber Safety Awareness Session", description: "Practical guidance on phishing, passwords, privacy and safer digital habits.", status: "Event details will be announced shortly." },
-  { id: "e2", date: "COMING SOON", type: "COMMUNITY", title: "Digital Security Workshop", description: "An introductory session on everyday security practices and responsible technology use.", status: "Registration is not open yet." }
-];
-
-const initialUpdatesList = [
-  { id: "n1", type: "COMPANY UPDATE", title: "Welcome to Golconda Security Services", date: "Latest update", message: "Our website is being prepared. Follow our official channels for announcements and upcoming programs." },
-  { id: "n2", type: "CYBER AWARENESS", title: "Pause before you click", date: "Safety reminder", message: "Verify unexpected links and requests before sharing passwords, OTPs or sensitive information." }
-];
+const serviceIconMap = { "shield-check": ShieldCheck, shield: Shield, globe: Globe, code: Code2, "graduation-cap": GraduationCap };
 
 function Brand({ footer = false }) {
   return <a className={`brand ${footer ? "brand-footer" : ""}`} href="#home" aria-label="Golconda Security Services home">
@@ -45,6 +31,9 @@ function SectionHeading({ eyebrow, title, subtitle, align = "center" }) {
 function App() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [notice, setNotice] = useState("");
+  const [publicContent, setPublicContent] = useState({ services: [], events: [], notifications: [] });
+  const [publicContentLoading, setPublicContentLoading] = useState(true);
+  const [publicContentError, setPublicContentError] = useState("");
   const [contact, setContact] = useState({ name: "", email: "", service: "Web Security", message: "" });
   const [application, setApplication] = useState({ name: "", email: "", role: "Security Guard / ASO", message: "" });
   const [complaintForm, setComplaintForm] = useState({ complainant_name: "", role: "Security Guard", phone: "", subject: "", details: "" });
@@ -56,15 +45,20 @@ function App() {
   const [adminMode, setAdminMode] = useState(false);
   const [adminEmail, setAdminEmail] = useState("");
   const [adminTab, setAdminTab] = useState("overview");
+  const [dashboardMetrics, setDashboardMetrics] = useState(null);
+  const [adminSearch, setAdminSearch] = useState("");
   
   // Admin Data State
   const [adminItems, setAdminItems] = useState({
-    events: initialEventsList,
-    notifications: initialUpdatesList,
-    services: initialServices,
+    events: [],
+    notifications: [],
+    services: [],
     sites: [],
+    guards: [],
     profileDocs: [],
-    complaints: []
+    complaints: [],
+    contactSubmissions: [],
+    jobApplications: []
   });
   const [adminLoading, setAdminLoading] = useState(false);
   const [adminMessage, setAdminMessage] = useState("");
@@ -72,9 +66,11 @@ function App() {
 
   // Forms for different admin tabs
   const [itemForm, setItemForm] = useState({
-    title: "", description: "", event_date: "", image_url: "", message: "",
+    title: "", description: "", event_date: "", image_url: "", message: "", tag: "", icon_key: "shield-check", sort_order: "0", event_type: "COMMUNITY", display_status: "", notification_type: "COMPANY UPDATE", display_date: "",
     // Site specific fields
-    phone_numbers: "", total_salary: "", service_taken: "SECURITY GUARD", given_emails: "", supervisor_name: "", field_officer_name: "", assigned_guards: "",
+    phone_numbers: "", total_salary: "", service_taken: "SECURITY GUARD", given_emails: "", supervisor_name: "", field_officer_name: "",
+    // Guard fields
+    full_name: "", phone: "", email: "", designation: "Security Guard", status: "active", joining_date: "", site_id: "",
     // Profile doc specific fields
     file_title: "", file_description: "", file_url: ""
   });
@@ -85,13 +81,44 @@ function App() {
     notifications: { title: "Manage Notifications", description: "Publish announcements and safety updates." },
     services: { title: "Manage Services", description: "Configure physical security and cybersecurity services." },
     sites: { title: "Sites & Deployments", description: "Manage deployment sites, supervisors, field officers, phone numbers & emails." },
+    guards: { title: "Guard Directory", description: "Manage guard records and assign each guard to one site." },
     profileDocs: { title: "Company Profile Vault", description: "Upload and organize company documents, certifications, and media files." },
-    complaints: { title: "Complaints Register", description: "Review and resolve complaints submitted by guards, supervisors, and clients." }
+    complaints: { title: "Complaints Register", description: "Review and resolve complaints submitted by guards, supervisors, and clients." },
+    contactSubmissions: { title: "Contact Enquiries", description: "Review website enquiries stored in the database." },
+    jobApplications: { title: "Job Applications", description: "Review applications and job interest submissions." }
   };
 
   useEffect(() => {
     let active = true;
+    async function loadPublicContent() {
+      if (!supabase) {
+        setPublicContentError(supabaseError || "Public content database is not configured.");
+        setPublicContentLoading(false);
+        return;
+      }
+      const [services, events, notifications] = await Promise.all([
+        supabase.from("services").select("id,title,description,image_url,tag,icon_key,sort_order,created_at").order("sort_order", { ascending: true }).order("created_at", { ascending: true }),
+        supabase.from("events").select("id,title,description,event_date,image_url,event_type,display_status,sort_order,created_at").order("sort_order", { ascending: true }).order("created_at", { ascending: false }),
+        supabase.from("notifications").select("id,title,message,notification_type,display_date,sort_order,created_at").order("sort_order", { ascending: true }).order("created_at", { ascending: false })
+      ]);
+      if (!active) return;
+      const error = services.error || events.error || notifications.error;
+      if (error) {
+        setPublicContentError(`Public content could not be loaded: ${error.message}`);
+      } else {
+        setPublicContent({ services: services.data || [], events: events.data || [], notifications: notifications.data || [] });
+        setPublicContentError("");
+      }
+      setPublicContentLoading(false);
+    }
+    loadPublicContent();
+    return () => { active = false; };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
     async function restoreAdminSession() {
+      if (!supabase) return;
       const { data } = await supabase.auth.getSession();
       const user = data?.session?.user;
       if (!user || !active) return;
@@ -108,16 +135,56 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (adminMode && adminTab !== "overview") {
-      loadAdminItems(adminTab);
-    }
+    if (!adminMode) return;
+    if (adminTab === "overview") loadDashboardMetrics();
+    else loadAdminItems(adminTab);
   }, [adminMode, adminTab]);
 
-  async function loadAdminItems(tabKey) {
+  async function loadDashboardMetrics() {
+    if (!supabase) return;
     setAdminLoading(true);
     setAdminMessage("");
-    const tableName = tabKey === "profileDocs" ? "profile_docs" : tabKey;
-    const { data, error } = await supabase.from(tableName).select("*").order("created_at", { ascending: false });
+    const keys = ["guards", "sites", "services", "events", "notifications", "complaints", "contact_submissions", "job_applications", "profile_docs"];
+    const results = await Promise.all(keys.map(table => supabase.from(table).select("id", { count: "exact", head: true })));
+    const failed = results.find(result => result.error);
+    if (failed) {
+      setAdminMessage(`Dashboard counts could not load: ${failed.error.message}`);
+    } else {
+      setDashboardMetrics(Object.fromEntries(keys.map((key, index) => [key, results[index].count ?? 0])));
+    }
+    setAdminLoading(false);
+  }
+
+  async function loadAdminItems(tabKey) {
+    if (!supabase) return;
+    setAdminLoading(true);
+    setAdminMessage("");
+    const tableName = ({ profileDocs: "profile_docs", contactSubmissions: "contact_submissions", jobApplications: "job_applications" })[tabKey] || tabKey;
+    let result;
+    if (tabKey === "sites") {
+      const [sites, guards] = await Promise.all([
+        supabase.from("sites").select("*").order("created_at", { ascending: false }),
+        supabase.from("guards").select("id,full_name,status,site_id").order("full_name")
+      ]);
+      result = sites.error ? sites : guards.error ? guards : { data: sites.data.map(site => ({
+        ...site,
+        guard_records: guards.data.filter(guard => guard.site_id === site.id)
+      })) };
+      if (!guards.error) setAdminItems(previous => ({ ...previous, guards: guards.data }));
+    } else if (tabKey === "guards") {
+      const [guards, sites] = await Promise.all([
+        supabase.from("guards").select("*").order("created_at", { ascending: false }),
+        supabase.from("sites").select("id,title").order("title")
+      ]);
+      result = guards.error ? guards : sites.error ? sites : { data: guards.data.map(guard => ({
+        ...guard,
+        site_title: sites.data.find(site => site.id === guard.site_id)?.title || "Unassigned"
+      })) };
+      if (!sites.error) setAdminItems(previous => ({ ...previous, sites: sites.data }));
+    } else {
+      result = await supabase.from(tableName).select("*").order("created_at", { ascending: false });
+    }
+    const { data, error } = result;
     if (error) {
       setAdminMessage(`Could not load ${tabKey}: ${error.message}`);
     } else if (data) {
@@ -129,8 +196,9 @@ function App() {
   function resetItemForm() {
     setEditingId(null);
     setItemForm({
-      title: "", description: "", event_date: "", image_url: "", message: "",
-      phone_numbers: "", total_salary: "", service_taken: "SECURITY GUARD", given_emails: "", supervisor_name: "", field_officer_name: "", assigned_guards: "",
+      title: "", description: "", event_date: "", image_url: "", message: "", tag: "", icon_key: "shield-check", sort_order: "0", event_type: "COMMUNITY", display_status: "", notification_type: "COMPANY UPDATE", display_date: "",
+      phone_numbers: "", total_salary: "", service_taken: "SECURITY GUARD", given_emails: "", supervisor_name: "", field_officer_name: "",
+      full_name: "", phone: "", email: "", designation: "Security Guard", status: "active", joining_date: "", site_id: "",
       file_title: "", file_description: "", file_url: ""
     });
   }
@@ -140,16 +208,29 @@ function App() {
     setItemForm({
       title: item.title || "",
       description: item.description || "",
-      event_date: item.event_date || "",
+      event_date: toDateInputValue(item.event_date),
       image_url: item.image_url || "",
       message: item.message || "",
+      tag: item.tag || "",
+      icon_key: item.icon_key || "shield-check",
+      sort_order: String(item.sort_order ?? 0),
+      event_type: item.event_type || "COMMUNITY",
+      display_status: item.display_status || "",
+      notification_type: item.notification_type || "COMPANY UPDATE",
+      display_date: item.display_date || "",
       phone_numbers: item.phone_numbers || "",
       total_salary: item.total_salary || "",
       service_taken: item.service_taken || "SECURITY GUARD",
       given_emails: item.given_emails || "",
       supervisor_name: item.supervisor_name || "",
       field_officer_name: item.field_officer_name || "",
-      assigned_guards: item.assigned_guards || "",
+      full_name: item.full_name || "",
+      phone: item.phone || "",
+      email: item.email || "",
+      designation: item.designation || "Security Guard",
+      status: item.status || "active",
+      joining_date: item.joining_date || "",
+      site_id: item.site_id ? String(item.site_id) : "",
       file_title: item.file_title || item.title || "",
       file_description: item.file_description || item.description || "",
       file_url: item.file_url || ""
@@ -161,15 +242,15 @@ function App() {
   async function saveAdminItem(event) {
     event.preventDefault();
     setAdminMessage("");
-    const tableName = adminTab === "profileDocs" ? "profile_docs" : adminTab;
+    const tableName = ({ profileDocs: "profile_docs" })[adminTab] || adminTab;
     
     let payload = {};
     if (adminTab === "events") {
-      payload = { title: itemForm.title.trim(), description: itemForm.description.trim(), event_date: itemForm.event_date || null, image_url: itemForm.image_url.trim() || null };
+      payload = { title: itemForm.title.trim(), description: itemForm.description.trim(), event_date: toUtcDateTimestamp(itemForm.event_date), image_url: itemForm.image_url.trim() || null, event_type: itemForm.event_type.trim(), display_status: itemForm.display_status.trim(), sort_order: Number(itemForm.sort_order) || 0 };
     } else if (adminTab === "notifications") {
-      payload = { title: itemForm.title.trim(), message: itemForm.message.trim() };
+      payload = { title: itemForm.title.trim(), message: itemForm.message.trim(), notification_type: itemForm.notification_type.trim(), display_date: itemForm.display_date.trim(), sort_order: Number(itemForm.sort_order) || 0 };
     } else if (adminTab === "services") {
-      payload = { title: itemForm.title.trim(), description: itemForm.description.trim(), image_url: itemForm.image_url.trim() || null };
+      payload = { title: itemForm.title.trim(), description: itemForm.description.trim(), image_url: itemForm.image_url.trim() || null, tag: itemForm.tag.trim(), icon_key: itemForm.icon_key, sort_order: Number(itemForm.sort_order) || 0 };
     } else if (adminTab === "sites") {
       payload = {
         title: itemForm.title.trim(),
@@ -179,13 +260,15 @@ function App() {
         given_emails: itemForm.given_emails.trim(),
         supervisor_name: itemForm.supervisor_name.trim(),
         field_officer_name: itemForm.field_officer_name.trim(),
-        assigned_guards: itemForm.assigned_guards.trim()
+        updated_at: new Date().toISOString()
       };
+    } else if (adminTab === "guards") {
+      payload = { full_name: itemForm.full_name.trim(), phone: itemForm.phone.trim(), email: itemForm.email.trim() || null, designation: itemForm.designation.trim(), status: itemForm.status, joining_date: itemForm.joining_date || null, site_id: itemForm.site_id ? Number(itemForm.site_id) : null, updated_at: new Date().toISOString() };
     } else if (adminTab === "profileDocs") {
       payload = {
         title: itemForm.file_title.trim(),
         description: itemForm.file_description.trim(),
-        file_url: itemForm.file_url.trim() || "https://golcondasecurity.com/document-sample.pdf"
+        file_url: itemForm.file_url.trim()
       };
     }
 
@@ -198,19 +281,37 @@ function App() {
       setAdminMessage(`Save failed: ${error.message}`);
       return;
     }
-    setAdminMessage(editingId ? "Changes saved successfully." : "Item added successfully.");
+    const successMessage = editingId ? "Changes saved successfully." : "Item added successfully.";
     resetItemForm();
     await loadAdminItems(adminTab);
+    await loadDashboardMetrics();
+    setAdminMessage(successMessage);
   }
 
   async function deleteAdminItem(item, tabKey) {
     if (!window.confirm(`Delete item? This cannot be undone.`)) return;
-    const tableName = tabKey === "profileDocs" ? "profile_docs" : tabKey;
+    const tableName = ({ profileDocs: "profile_docs", contactSubmissions: "contact_submissions", jobApplications: "job_applications" })[tabKey] || tabKey;
     const { error } = await supabase.from(tableName).delete().eq("id", item.id);
     if (error) setAdminMessage(`Delete failed: ${error.message}`);
     else {
-      setAdminMessage("Item deleted successfully.");
       await loadAdminItems(tabKey);
+      await loadDashboardMetrics();
+      setAdminMessage("Item deleted successfully.");
+    }
+  }
+
+  async function toggleComplaintStatus(complaint) {
+    const status = complaint.status === "resolved" ? "pending" : "resolved";
+    const { error } = await supabase.from("complaints").update({
+      status,
+      resolved_at: status === "resolved" ? new Date().toISOString() : null,
+      updated_at: new Date().toISOString(),
+    }).eq("id", complaint.id);
+    if (error) setAdminMessage(`Complaint update failed: ${error.message}`);
+    else {
+      await loadAdminItems("complaints");
+      await loadDashboardMetrics();
+      setAdminMessage(`Complaint marked ${status}.`);
     }
   }
 
@@ -221,23 +322,24 @@ function App() {
     if (!msgBody) return;
 
     try {
-      const res = await fetch(`${import.meta.env.VITE_API_URL || "http://localhost:4000"}/api/send-message`, {
+      const { data } = await supabase.auth.getSession();
+      const token = data?.session?.access_token;
+      if (!token) throw new Error("Your admin session has expired. Sign in again.");
+      const res = await fetch(apiUrl("/api/send-message"), {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ title: msgTitle, message: msgBody, recipient: item?.supervisor_name || item?.given_emails || "golcondasecservices@gmail.com" })
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ title: msgTitle, message: msgBody, recipients: item?.given_emails || item?.email || undefined })
       });
-      if (res.ok) {
-        alert("Message dispatched successfully to official email (golcondasecservices@gmail.com) and recipient.");
-      } else {
-        alert("Message instruction registered and queued for official dispatch.");
-      }
-    } catch {
-      alert("Message request logged successfully for dispatch to golcondasecservices@gmail.com.");
+      const result = await res.json();
+      if (!res.ok) throw new Error(result.error || "Message could not be sent.");
+      alert(result.message || "Message sent.");
+    } catch (error) {
+      alert(`Message not sent: ${error.message}`);
     }
   }
 
   async function handleAdminLogout() {
-    await supabase.auth.signOut();
+    await supabase?.auth.signOut();
     setAdminMode(false);
     setAdminEmail("");
     setLogin({ userId: "", password: "" });
@@ -254,17 +356,15 @@ function App() {
     event.preventDefault();
     setNotice("");
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL || "http://localhost:4000"}/api/${endpoint}`, {
+      const response = await fetch(apiUrl(`/api/${endpoint}`), {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error || "Submission failed.");
-      setNotice(successText);
+      setNotice(result.message || successText);
       reset();
     } catch (error) {
-      // Fallback local success notification for robust offline/demo capability
-      setNotice(`${successText} (Notice: Sent to golcondasecservices@gmail.com)`);
-      reset();
+      setNotice(`Submission failed: ${error.message}`);
     }
   }
 
@@ -277,6 +377,10 @@ function App() {
   async function handleLogin(event) {
     event.preventDefault();
     setLoginMessage("");
+    if (!supabase) {
+      setLoginMessage(supabaseError || "Authentication is not configured.");
+      return;
+    }
 
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
@@ -314,9 +418,11 @@ function App() {
 
   if (adminMode) {
     const currentItems = adminItems[adminTab] || [];
-    const totalGuardsCount = adminItems.sites.reduce((acc, s) => acc + (parseInt(s.assigned_guards) || 5), 24);
-    const totalSitesCount = adminItems.sites.length || 6;
-    const totalSupervisorsCount = new Set(adminItems.sites.map(s => s.supervisor_name).filter(Boolean)).size || 4;
+    const query = adminSearch.trim().toLowerCase();
+    const visibleItems = query ? currentItems.filter(item => Object.values(item).some(value => String(value ?? "").toLowerCase().includes(query))) : currentItems;
+    const totalGuardsCount = dashboardMetrics?.guards ?? "—";
+    const totalSitesCount = dashboardMetrics?.sites ?? "—";
+    const metric = (key) => dashboardMetrics?.[key] ?? "—";
 
     return <div className="gss-admin-shell">
       <style>{`
@@ -364,7 +470,8 @@ function App() {
         .gss-admin-item-copy p{font-size:13px;color:#5d687a;line-height:1.6;margin:6px 0}
         .gss-admin-item-copy .site-details{display:flex;flex-wrap:wrap;gap:12px;font-size:12px;color:#475467;margin-top:8px;background:#f8fafc;padding:8px 12px;border-radius:6px;border:1px solid #e2e8f0}
         .gss-admin-item-copy small{font-size:11px;color:#8a93a2;display:block;margin-top:4px}
-        .gss-admin-item-actions{display:flex;gap:7px;flex-shrink:0}
+        .gss-admin-item-actions{display:flex;gap:7px;flex-shrink:0;flex-wrap:wrap}
+        .gss-admin-search{max-width:360px;width:100%;border:1px solid #d8dee8;border-radius:8px;padding:10px 12px;font:inherit}
         .gss-admin-item-actions button{background:#fff;border:1px solid #dce2eb;border-radius:7px;padding:8px 10px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:6px}
         .gss-admin-item-actions button.danger{color:#b42318;border-color:#fecdca}
         .gss-admin-item-actions button.msg-btn{color:#026aa2;border-color:#b9e6fe;background:#f0f9ff}
@@ -399,13 +506,16 @@ function App() {
 
         {/* Stats Navigation bar */}
         <div className="gss-admin-stats">
-          <button className={adminTab === "overview" ? "active" : ""} onClick={() => setAdminTab("overview")}><ShieldCheck/><span><small>Overview</small><strong>Dashboard</strong><b>Status Active</b></span></button>
-          <button className={adminTab === "sites" ? "active" : ""} onClick={() => { setAdminTab("sites"); resetItemForm(); }}><Building2/><span><small>Management</small><strong>Sites & Guards</strong><b>{totalSitesCount} Sites ({totalGuardsCount} Guards)</b></span></button>
-          <button className={adminTab === "profileDocs" ? "active" : ""} onClick={() => { setAdminTab("profileDocs"); resetItemForm(); }}><FileText/><span><small>Company Vault</small><strong>Profile Docs</strong><b>{adminItems.profileDocs.length} Files</b></span></button>
-          <button className={adminTab === "complaints" ? "active" : ""} onClick={() => { setAdminTab("complaints"); resetItemForm(); }}><AlertCircle/><span><small>Client & Staff</small><strong>Complaints</strong><b>{adminItems.complaints.length} Logged</b></span></button>
-          <button className={adminTab === "events" ? "active" : ""} onClick={() => { setAdminTab("events"); resetItemForm(); }}><CalendarDays/><span><small>Schedule</small><strong>Events</strong><b>{adminItems.events.length} Items</b></span></button>
-          <button className={adminTab === "notifications" ? "active" : ""} onClick={() => { setAdminTab("notifications"); resetItemForm(); }}><Bell/><span><small>Broadcasts</small><strong>Notifications</strong><b>{adminItems.notifications.length} Active</b></span></button>
-          <button className={adminTab === "services" ? "active" : ""} onClick={() => { setAdminTab("services"); resetItemForm(); }}><Globe/><span><small>Offerings</small><strong>Services</strong><b>{adminItems.services.length} Listed</b></span></button>
+          <button className={adminTab === "overview" ? "active" : ""} onClick={() => setAdminTab("overview")}><ShieldCheck/><span><small>Overview</small><strong>Dashboard</strong><b>Live database counts</b></span></button>
+          <button className={adminTab === "sites" ? "active" : ""} onClick={() => { setAdminTab("sites"); resetItemForm(); }}><Building2/><span><small>Management</small><strong>Sites</strong><b>{totalSitesCount} Records</b></span></button>
+          <button className={adminTab === "guards" ? "active" : ""} onClick={() => { setAdminTab("guards"); resetItemForm(); }}><Users/><span><small>Management</small><strong>Guards</strong><b>{totalGuardsCount} Records</b></span></button>
+          <button className={adminTab === "profileDocs" ? "active" : ""} onClick={() => { setAdminTab("profileDocs"); resetItemForm(); }}><FileText/><span><small>Company Vault</small><strong>Profile Docs</strong><b>{metric("profile_docs")} Files</b></span></button>
+          <button className={adminTab === "complaints" ? "active" : ""} onClick={() => { setAdminTab("complaints"); resetItemForm(); }}><AlertCircle/><span><small>Client & Staff</small><strong>Complaints</strong><b>{metric("complaints")} Logged</b></span></button>
+          <button className={adminTab === "events" ? "active" : ""} onClick={() => { setAdminTab("events"); resetItemForm(); }}><CalendarDays/><span><small>Schedule</small><strong>Events</strong><b>{metric("events")} Items</b></span></button>
+          <button className={adminTab === "notifications" ? "active" : ""} onClick={() => { setAdminTab("notifications"); resetItemForm(); }}><Bell/><span><small>Broadcasts</small><strong>Notifications</strong><b>{metric("notifications")} Records</b></span></button>
+          <button className={adminTab === "services" ? "active" : ""} onClick={() => { setAdminTab("services"); resetItemForm(); }}><Globe/><span><small>Offerings</small><strong>Services</strong><b>{metric("services")} Listed</b></span></button>
+          <button className={adminTab === "contactSubmissions" ? "active" : ""} onClick={() => { setAdminTab("contactSubmissions"); resetItemForm(); }}><Mail/><span><small>Website</small><strong>Enquiries</strong><b>{metric("contact_submissions")} Records</b></span></button>
+          <button className={adminTab === "jobApplications" ? "active" : ""} onClick={() => { setAdminTab("jobApplications"); resetItemForm(); }}><UserRound/><span><small>Recruitment</small><strong>Applications</strong><b>{metric("job_applications")} Records</b></span></button>
         </div>
 
         <section className="gss-admin-panel">
@@ -420,23 +530,9 @@ function App() {
 
           {adminTab === "overview" && (
             <div>
-              <div className="gss-admin-stats" style={{marginBottom: "30px"}}>
-                <div style={{background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "12px", padding: "20px"}}>
-                  <small style={{color: "#64748b", fontWeight: "700"}}>TOTAL SECURITY GUARDS UNDER COMPANY</small>
-                  <strong style={{fontSize: "28px", color: "#1e293b", margin: "8px 0"}}>{totalGuardsCount} Personnel</strong>
-                  <span style={{fontSize: "12px", color: "#0d9488"}}>Active across all deployed units</span>
-                </div>
-                <div style={{background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "12px", padding: "20px"}}>
-                  <small style={{color: "#64748b", fontWeight: "700"}}>SITES MANAGING</small>
-                  <strong style={{fontSize: "28px", color: "#1e293b", margin: "8px 0"}}>{totalSitesCount} Locations</strong>
-                  <span style={{fontSize: "12px", color: "#0d9488"}}>Managed by {totalSupervisorsCount} Supervisors</span>
-                </div>
-                <div style={{background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "12px", padding: "20px"}}>
-                  <small style={{color: "#64748b", fontWeight: "700"}}>OFFICIAL CONTACT & EMAIL</small>
-                  <strong style={{fontSize: "16px", color: "#1e293b", margin: "8px 0"}}>+91-9032545115</strong>
-                  <span style={{fontSize: "12px", color: "#0d9488"}}>golcondasecservices@gmail.com</span>
-                </div>
-              </div>
+              {adminLoading ? <p className="gss-admin-empty">Loading live database counts…</p> : <div className="gss-admin-stats" style={{marginBottom: "30px"}}>
+                {[["guards", "Guards"], ["sites", "Sites"], ["services", "Services"], ["events", "Events"], ["notifications", "Notifications"], ["complaints", "Complaints"], ["contact_submissions", "Contact enquiries"], ["job_applications", "Applications"]].map(([key, label]) => <div key={key} style={{background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "12px", padding: "20px"}}><small style={{color: "#64748b", fontWeight: "700", textTransform: "uppercase"}}>{label}</small><strong style={{fontSize: "28px", color: "#1e293b", margin: "8px 0", display: "block"}}>{metric(key)}</strong><span style={{fontSize: "12px", color: "#0d9488"}}>Current database total</span></div>)}
+              </div>}
 
               <div className="gss-overview-grid">
                 <div className="gss-overview-card">
@@ -458,9 +554,9 @@ function App() {
             </div>
           )}
 
-          {adminTab !== "overview" && adminTab !== "complaints" && (
+          {adminTab !== "overview" && !["complaints", "contactSubmissions", "jobApplications"].includes(adminTab) && (
             <form className="gss-admin-form" onSubmit={saveAdminItem}>
-              <h3>{editingId ? "Edit Item" : `Add New ${adminTab === "sites" ? "Site" : adminTab === "profileDocs" ? "Profile Document" : adminTab === "notifications" ? "Notification" : adminTab === "events" ? "Event" : "Service"}`}</h3>
+              <h3>{editingId ? "Edit Item" : `Add New ${adminTab === "sites" ? "Site" : adminTab === "guards" ? "Guard" : adminTab === "profileDocs" ? "Profile Document" : adminTab === "notifications" ? "Notification" : adminTab === "events" ? "Event" : "Service"}`}</h3>
               
               {(adminTab === "events" || adminTab === "notifications" || adminTab === "services") && (
                 <>
@@ -471,6 +567,10 @@ function App() {
                     <label className="full">Description<textarea required rows="3" value={itemForm.description} onChange={e => setItemForm({ ...itemForm, description: e.target.value })} placeholder="Describe item"/></label>
                   )}
                   {adminTab === "events" && <label>Event Date<input type="date" value={itemForm.event_date} onChange={e => setItemForm({ ...itemForm, event_date: e.target.value })}/></label>}
+                  {adminTab === "events" && <><label>Event Type<input value={itemForm.event_type} onChange={e => setItemForm({ ...itemForm, event_type: e.target.value })}/></label><label>Display Status<input value={itemForm.display_status} onChange={e => setItemForm({ ...itemForm, display_status: e.target.value })} placeholder="Registration details / status"/></label></>}
+                  {adminTab === "notifications" && <><label>Notification Type<input value={itemForm.notification_type} onChange={e => setItemForm({ ...itemForm, notification_type: e.target.value })}/></label><label>Date Label<input value={itemForm.display_date} onChange={e => setItemForm({ ...itemForm, display_date: e.target.value })} placeholder="Latest update"/></label></>}
+                  {adminTab === "services" && <><label>Card Tag<input value={itemForm.tag} onChange={e => setItemForm({ ...itemForm, tag: e.target.value })} placeholder="PHYSICAL SECURITY"/></label><label>Card Icon<select value={itemForm.icon_key} onChange={e => setItemForm({ ...itemForm, icon_key: e.target.value })}><option value="shield-check">Shield check</option><option value="shield">Shield</option><option value="globe">Globe</option><option value="code">Code</option><option value="graduation-cap">Graduation cap</option></select></label></>}
+                  <label>Display Order<input type="number" min="0" value={itemForm.sort_order} onChange={e => setItemForm({ ...itemForm, sort_order: e.target.value })}/></label>
                   {adminTab !== "notifications" && <label>Image URL (Optional)<input type="url" value={itemForm.image_url} onChange={e => setItemForm({ ...itemForm, image_url: e.target.value })} placeholder="https://..."/></label>}
                 </>
               )}
@@ -478,25 +578,31 @@ function App() {
               {adminTab === "sites" && (
                 <>
                   <label>Site Name<input required value={itemForm.title} onChange={e => setItemForm({ ...itemForm, title: e.target.value })} placeholder="Client / Location Name"/></label>
-                  <label>Phone Numbers (upto 5 numbers, comma separated)<input required value={itemForm.phone_numbers} onChange={e => setItemForm({ ...itemForm, phone_numbers: e.target.value })} placeholder="9032545115, 9876543210"/></label>
-                  <label>Total Salary / Billing<input required value={itemForm.total_salary} onChange={e => setItemForm({ ...itemForm, total_salary: e.target.value })} placeholder="e.g. ₹1,50,000 / mo"/></label>
+                  <label>Phone Numbers (up to 5, comma separated)<input value={itemForm.phone_numbers} onChange={e => setItemForm({ ...itemForm, phone_numbers: e.target.value })} placeholder="9032545115, 9876543210"/></label>
+                  <label>Total Salary / Billing<input value={itemForm.total_salary} onChange={e => setItemForm({ ...itemForm, total_salary: e.target.value })} placeholder="e.g. ₹1,50,000 / mo"/></label>
                   <label>Services Taken<select value={itemForm.service_taken} onChange={e => setItemForm({ ...itemForm, service_taken: e.target.value })}><option>SECURITY GUARD</option><option>ASO</option><option>BOTH</option></select></label>
                   <label className="full">Given Emails (upto 5 emails, comma separated)<input value={itemForm.given_emails} onChange={e => setItemForm({ ...itemForm, given_emails: e.target.value })} placeholder="client1@example.com, client2@example.com"/></label>
-                  <label>Supervisor Name<input required value={itemForm.supervisor_name} onChange={e => setItemForm({ ...itemForm, supervisor_name: e.target.value })} placeholder="Assigned Supervisor"/></label>
-                  <label>Field Officer Name<input required value={itemForm.field_officer_name} onChange={e => setItemForm({ ...itemForm, field_officer_name: e.target.value })} placeholder="Managing Field Officer"/></label>
-                  <label className="full">Assigned Guards (Names / Count)<input required value={itemForm.assigned_guards} onChange={e => setItemForm({ ...itemForm, assigned_guards: e.target.value })} placeholder="Guard Ramesh, Guard Suresh (Total 6)"/></label>
+                  <label>Supervisor Name<input value={itemForm.supervisor_name} onChange={e => setItemForm({ ...itemForm, supervisor_name: e.target.value })} placeholder="Assigned Supervisor"/></label>
+                  <label>Field Officer Name<input value={itemForm.field_officer_name} onChange={e => setItemForm({ ...itemForm, field_officer_name: e.target.value })} placeholder="Managing Field Officer"/></label>
                 </>
               )}
 
+              {adminTab === "guards" && <>
+                <label className="full">Full Name<input required maxLength="120" value={itemForm.full_name} onChange={e => setItemForm({ ...itemForm, full_name: e.target.value })}/></label>
+                <label>Phone<input required maxLength="24" value={itemForm.phone} onChange={e => setItemForm({ ...itemForm, phone: e.target.value })}/></label>
+                <label>Email (optional)<input type="email" value={itemForm.email} onChange={e => setItemForm({ ...itemForm, email: e.target.value })}/></label>
+                <label>Designation<input value={itemForm.designation} onChange={e => setItemForm({ ...itemForm, designation: e.target.value })}/></label>
+                <label>Status<select value={itemForm.status} onChange={e => setItemForm({ ...itemForm, status: e.target.value })}><option value="active">Active</option><option value="inactive">Inactive</option><option value="on_leave">On leave</option></select></label>
+                <label>Joining Date<input type="date" value={itemForm.joining_date} onChange={e => setItemForm({ ...itemForm, joining_date: e.target.value })}/></label>
+                <label>Assigned Site<select value={itemForm.site_id} onChange={e => setItemForm({ ...itemForm, site_id: e.target.value })}><option value="">Unassigned</option>{adminItems.sites.map(site => <option key={site.id} value={site.id}>{site.title}</option>)}</select></label>
+              </>}
+
               {adminTab === "profileDocs" && (
-                <div className="drag-drop-box" onClick={() => {
-                  const urlInput = prompt("Enter document URL or file path (PDF/DOC/Image):", "https://golcondasecurity.com/company-profile.pdf");
-                  if (urlInput) setItemForm({...itemForm, file_url: urlInput});
-                }}>
+                <div className="drag-drop-box">
                   <FileText size={32} style={{color: "#caa65b", margin: "0 auto 10px"}} />
-                  <strong>Click to Upload / Select or Drag Files Here</strong>
-                  <p style={{margin: "5px 0 10px", fontSize: "12px", color: "#64748b"}}>Supports PDF, DOCX, PNG, JPG company profiles and certifications.</p>
-                  <input type="text" readOnly placeholder={itemForm.file_url || "No file selected (Click to set file URL)"} value={itemForm.file_url} style={{background: "#fff", cursor: "pointer"}} />
+                  <strong>Company profile document URL</strong>
+                  <p style={{margin: "5px 0 10px", fontSize: "12px", color: "#64748b"}}>Documents remain hosted at the existing URL until a Supabase Storage bucket is configured.</p>
+                  <label className="full">File URL<input required type="url" value={itemForm.file_url} onChange={e => setItemForm({...itemForm, file_url: e.target.value})} placeholder="https://..." /></label>
                   <div style={{display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginTop: "15px", textAlign: "left"}}>
                     <label>Document Title<input required value={itemForm.file_title} onChange={e => setItemForm({...itemForm, file_title: e.target.value})} placeholder="Company Profile 2026"/></label>
                     <label>Description<input value={itemForm.file_description} onChange={e => setItemForm({...itemForm, file_description: e.target.value})} placeholder="Official brochure & credentials"/></label>
@@ -515,22 +621,30 @@ function App() {
 
           <div className="gss-admin-list-heading">
             <h3>{adminTab === "overview" ? "Quick Operational Actions" : "Records & Entries"}</h3>
-            <span>{currentItems.length} total</span>
+            {adminTab !== "overview" && <input className="gss-admin-search" type="search" value={adminSearch} onChange={e => setAdminSearch(e.target.value)} placeholder="Search records" aria-label="Search records"/>}
+            <span>{adminTab === "overview" ? "" : `${visibleItems.length} shown · ${currentItems.length} total`}</span>
           </div>
 
           {adminLoading ? (
             <p className="gss-admin-empty">Loading records…</p>
           ) : adminTab === "overview" ? (
             <div className="gss-admin-empty">Select any tab above (Sites, Profile Vault, Complaints, Events) to view, add, edit, or delete items.</div>
-          ) : currentItems.length === 0 ? (
+          ) : visibleItems.length === 0 ? (
             <p className="gss-admin-empty">No items found. Use the form above to add your first record.</p>
           ) : (
             <div className="gss-admin-items">
-              {currentItems.map(item => (
+              {visibleItems.map(item => (
                 <article className="gss-admin-item" key={item.id}>
                   <div className="gss-admin-item-copy">
-                    <strong>{item.title || item.file_title || "Untitled Record"}</strong>
-                    <p>{adminTab === "notifications" ? item.message : item.description || item.file_description}</p>
+                    <strong>{item.title || item.full_name || item.name || item.file_title || "Untitled Record"}</strong>
+                    {adminTab === "complaints" ? <>
+                      <div className="site-details"><span><b>Role:</b> {item.role}</span><span><b>Phone:</b> {item.phone}</span><span><b>Status:</b> {item.status || "pending"}</span><span><b>Submitted:</b> {new Date(item.created_at).toLocaleString()}</span></div>
+                      <p><b>Subject:</b> {item.subject}</p><p><b>Details:</b> {item.details}</p>
+                    </> : adminTab === "contactSubmissions" ? <>
+                      <div className="site-details"><span><b>Email:</b> {item.email}</span><span><b>Service:</b> {item.service || "General enquiry"}</span><span><b>Status:</b> {item.status}</span><span><b>Submitted:</b> {new Date(item.created_at).toLocaleString()}</span></div><p>{item.message}</p>
+                    </> : adminTab === "jobApplications" ? <>
+                      <div className="site-details"><span><b>Email:</b> {item.email}</span><span><b>Role:</b> {item.role}</span><span><b>Status:</b> {item.status}</span><span><b>Submitted:</b> {new Date(item.created_at).toLocaleString()}</span></div><p>{item.message || "No introduction provided."}</p>
+                    </> : <p>{adminTab === "notifications" ? item.message : item.description || item.file_description}</p>}
                     
                     {adminTab === "sites" && (
                       <div className="site-details">
@@ -540,9 +654,11 @@ function App() {
                         <span>✉️ <b>Emails:</b> {item.given_emails || "N/A"}</span>
                         <span>👤 <b>Supervisor:</b> {item.supervisor_name}</span>
                         <span>⭐ <b>Field Officer:</b> {item.field_officer_name}</span>
-                        <span>👥 <b>Guards:</b> {item.assigned_guards}</span>
+                        <span>👥 <b>Assigned guards:</b> {item.guard_records?.map(guard => `${guard.full_name} (${guard.status})`).join(", ") || "None"}</span>
                       </div>
                     )}
+
+                    {adminTab === "guards" && <div className="site-details"><span><b>Phone:</b> {item.phone}</span><span><b>Email:</b> {item.email || "—"}</span><span><b>Designation:</b> {item.designation}</span><span><b>Status:</b> {item.status}</span><span><b>Site:</b> {item.site_title}</span><span><b>Joined:</b> {item.joining_date || "—"}</span></div>}
 
                     {adminTab === "profileDocs" && item.file_url && (
                       <a href={item.file_url} target="_blank" rel="noreferrer" className="text-link" style={{display: "inline-flex", alignItems: "center", gap: "6px", marginTop: "6px"}}>
@@ -556,7 +672,8 @@ function App() {
                     <button type="button" className="msg-btn" onClick={() => handleSendMessageAction(item)} title="Send Message / Email">
                       <Send size={15}/> Send Msg
                     </button>
-                    {adminTab !== "complaints" && (
+                    {adminTab === "complaints" && <button type="button" onClick={() => toggleComplaintStatus(item)}>{item.status === "resolved" ? "Reopen" : "Mark Resolved"}</button>}
+                    {!['complaints', 'contactSubmissions', 'jobApplications'].includes(adminTab) && (
                       <button type="button" onClick={() => startEditing(item, adminTab)} aria-label="Edit item">
                         <Pencil size={15}/> Edit
                       </button>
@@ -572,7 +689,7 @@ function App() {
         </section>
 
         <p className="gss-admin-security-note">
-          <LockKeyhole size={15}/> All complaints and actions route to <b>golcondasecservices@gmail.com</b> and <b>+91-9032545115</b>.
+          <LockKeyhole size={15}/> Submissions are stored for authorized admin review. Email alerts are sent when the email provider is configured.
         </p>
       </main>
     </div>;
@@ -621,17 +738,20 @@ function App() {
         <div className="hero-bottom-line"/>
       </section>
 
-      <section className="trust-strip"><div className="container trust-inner"><span>OUR FOCUS</span><b>Security Guard / ASO</b><i/><b>Cybersecurity & VPAT</b><i/><b>Web Design & Development</b><i/><b>Cyber Awareness</b></div></section>
+      <section className="trust-strip"><div className="container trust-inner"><span>OUR FOCUS</span>{publicContent.services.slice(0, 4).map((service, index) => <React.Fragment key={service.id}>{index > 0 && <i/>}<b>{service.title}</b></React.Fragment>)}</div></section>
 
       <section className="section services-section" id="services">
         <div className="container">
           <SectionHeading eyebrow="WHAT WE DO" title="Security, built around you." subtitle="Practical physical and digital security services delivered under one trusted banner."/>
           <div className="service-grid">
-            {initialServices.map(({icon: Icon, number, title, tag, description}) => <article className="service-card" key={title}>
-              <div className="service-card-top"><span className="service-icon"><Icon size={25}/></span><span className="service-number">{number}</span></div>
-              <span className="card-tag">{tag}</span><h3>{title}</h3><p>{description}</p>
-              <a href="#contact" className="text-link">Discuss this service <ArrowUpRight size={15}/></a>
-            </article>)}
+            {publicContentLoading ? <p role="status">Loading services…</p> : publicContentError ? <p role="alert">{publicContentError}</p> : publicContent.services.length ? publicContent.services.map((service, index) => {
+              const Icon = serviceIconMap[service.icon_key] || ShieldCheck;
+              return <article className="service-card" key={service.id}>
+                <div className="service-card-top"><span className="service-icon"><Icon size={25}/></span><span className="service-number">{String(index + 1).padStart(2, "0")}</span></div>
+                <span className="card-tag">{service.tag || "SECURITY SERVICES"}</span><h3>{service.title}</h3><p>{service.description}</p>
+                <a href="#contact" className="text-link">Discuss this service <ArrowUpRight size={15}/></a>
+              </article>;
+            }) : <p>No services are currently published.</p>}
           </div>
         </div>
       </section>
@@ -640,7 +760,7 @@ function App() {
         <div className="container">
           <div className="section-row"><SectionHeading eyebrow="THE LATEST" title="Notifications & updates" subtitle="Company news, service announcements and safety reminders." align="left"/><span className="live-label"><span className="status-dot"/> LIVE UPDATES</span></div>
           <div className="updates-grid">
-            {initialUpdatesList.map(item => <article className="update-card" key={item.title}><div className="update-meta"><span>{item.type}</span><span>{item.date}</span></div><h3>{item.title}</h3><p>{item.message}</p><a href="#contact" className="text-link">Stay connected <ArrowRight size={15}/></a></article>)}
+            {publicContentLoading ? <p role="status">Loading updates…</p> : publicContentError ? <p role="alert">{publicContentError}</p> : publicContent.notifications.length ? publicContent.notifications.map(item => <article className="update-card" key={item.id}><div className="update-meta"><span>{item.notification_type || "COMPANY UPDATE"}</span><span>{item.display_date || (item.created_at ? new Date(item.created_at).toLocaleDateString() : "Latest update")}</span></div><h3>{item.title}</h3><p>{item.message}</p><a href="#contact" className="text-link">Stay connected <ArrowRight size={15}/></a></article>) : <p>No updates are currently published.</p>}
           </div>
         </div>
       </section>
@@ -649,7 +769,7 @@ function App() {
         <div className="container">
           <SectionHeading eyebrow="LEARN · PREPARE · PROTECT" title="Upcoming events" subtitle="Building safer habits through professional training and community learning."/>
           <div className="events-grid">
-            {initialEventsList.map(event => <article className="event-card" key={event.title}><div className="event-date"><CalendarDays size={20}/><span>{event.date}</span></div><div className="event-content"><span className="card-tag">{event.type}</span><h3>{event.title}</h3><p>{event.description}</p><div className="event-footer"><span>{event.status}</span><a href="#contact" aria-label="Ask about event"><ArrowUpRight size={18}/></a></div></div></article>)}
+            {publicContentLoading ? <p role="status">Loading events…</p> : publicContentError ? <p role="alert">{publicContentError}</p> : publicContent.events.length ? publicContent.events.map(event => <article className="event-card" key={event.id}><div className="event-date"><CalendarDays size={20}/><span>{formatUtcDate(event.event_date)}</span></div><div className="event-content"><span className="card-tag">{event.event_type || "COMMUNITY"}</span><h3>{event.title}</h3><p>{event.description}</p><div className="event-footer"><span>{event.display_status || "Contact us for details."}</span><a href="#contact" aria-label="Ask about event"><ArrowUpRight size={18}/></a></div></div></article>) : <p>No events are currently published.</p>}
           </div>
         </div>
       </section>
@@ -677,13 +797,13 @@ function App() {
           <div>
             <span className="eyebrow">GRIEVANCE & COMPLAINTS</span>
             <h2>Register a <em>Complaint.</em></h2>
-            <p>Guards, supervisors, field officers, or clients can register grievances or operational complaints here. All submissions route directly to our command center email (<b style={{color: "#0f172a"}}>golcondasecservices@gmail.com</b>).</p>
+            <p>Guards, supervisors, field officers, or clients can register grievances or operational complaints here. Submissions are saved for authorized review. Email notifications are sent when email delivery is configured.</p>
             <div className="career-perks">
               <span><Phone size={17}/> Direct Hotline: 9032545115</span>
               <span><CheckCircle2 size={17}/> Prompt Review & Resolution</span>
             </div>
           </div>
-          <form className="form-card" onSubmit={(e) => submitForm(e, "complaints", complaintForm, () => setComplaintForm({complainant_name: "", role: "Security Guard", phone: "", subject: "", details: ""}), "Complaint registered successfully. Sent to golcondasecservices@gmail.com.")}>
+          <form className="form-card" onSubmit={(e) => submitForm(e, "complaints", complaintForm, () => setComplaintForm({complainant_name: "", role: "Security Guard", phone: "", subject: "", details: ""}), "Complaint registered successfully.")}>
             <h3>Submit Complaint</h3>
             <p className="form-intro">Your details remain strictly confidential.</p>
             <label>Your Name<input required value={complaintForm.complainant_name} onChange={e=>setComplaintForm({...complaintForm, complainant_name: e.target.value})} placeholder="Full name"/></label>
@@ -703,7 +823,7 @@ function App() {
             <h3>Work with us</h3><p className="form-intro">Join Golconda Security Services.</p>
             <label>Full name<input required value={application.name} onChange={e=>setApplication({...application,name:e.target.value})} placeholder="Your full name"/></label>
             <label>Email address<input required type="email" value={application.email} onChange={e=>setApplication({...application,email:e.target.value})} placeholder="you@example.com"/></label>
-            <label>Area of interest<select value={application.role} onChange={e=>setApplication({...application,role:e.target.value})}><option>Security Guard / ASO</option><option>Web Security</option><option>Web Designing</option><option>Cyber Awareness</option><option>Supervisor / Field Officer</option></select></label>
+            <label>Area of interest<select value={application.role} onChange={e=>setApplication({...application,role:e.target.value})}>{publicContent.services.map(service => <option key={service.id}>{service.title}</option>)}<option>Supervisor / Field Officer</option><option>General Interest</option></select></label>
             <label>Short introduction<textarea rows="3" value={application.message} onChange={e=>setApplication({...application,message:e.target.value})} placeholder="Experience or inquiries"/></label>
             <button className="button button-gold button-full" type="submit">Submit Interest <ArrowRight size={16}/></button>
           </form>
@@ -725,11 +845,7 @@ function App() {
             <label>Full name *<input required value={contact.name} onChange={e=>setContact({...contact,name:e.target.value})} placeholder="Your name"/></label>
             <label>Email address *<input required type="email" value={contact.email} onChange={e=>setContact({...contact,email:e.target.value})} placeholder="you@example.com"/></label>
             <label>I'm interested in<select value={contact.service} onChange={e=>setContact({...contact,service:e.target.value})}>
-              <option>Security Guard / ASO</option>
-              <option>VPAT</option>
-              <option>Web Security</option>
-              <option>Web Designing</option>
-              <option>Cyber Awareness</option>
+              {publicContent.services.map(service => <option key={service.id}>{service.title}</option>)}
               <option>General Enquiry</option>
             </select></label>
             <label>How can we help? *<textarea required rows="4" value={contact.message} onChange={e=>setContact({...contact,message:e.target.value})} placeholder="Tell us about your requirement..."/></label>
@@ -775,4 +891,9 @@ function App() {
   </>;
 }
 
-createRoot(document.getElementById("root")).render(<App/>);
+const rootElement = document.getElementById("root");
+// Reuse the root when Vite re-evaluates this entry module during hot updates.
+const root = import.meta.hot
+  ? (import.meta.hot.data.root ||= createRoot(rootElement))
+  : createRoot(rootElement);
+root.render(<App/>);
