@@ -36,7 +36,7 @@ export function createIntakeRateLimiter({ limit = 10, windowMs = 15 * 60 * 1000 
 }
 
 async function sendNotificationEmail(emailSender, payload) {
-  if (!process.env.RESEND_API_KEY || !process.env.EMAIL_FROM || !process.env.NOTIFICATION_EMAIL) {
+  if (!getIntakeEmailConfiguration().configured) {
     return { sent: false, reason: "Email notifications are not configured." };
   }
   try {
@@ -66,6 +66,12 @@ function submissionResponse(res, record, emailResult, label) {
   });
 }
 
+function getIntakeEmailConfiguration(env = process.env) {
+  const requiredVariables = ["RESEND_API_KEY", "EMAIL_FROM", "NOTIFICATION_EMAIL"];
+  const missing = requiredVariables.filter((name) => typeof env[name] !== "string" || !env[name].trim());
+  return { configured: missing.length === 0, missing };
+}
+
 function insertRow(database, table, row) {
   return database.from(table).insert(row).select("id, created_at").single();
 }
@@ -83,14 +89,15 @@ export function createApp({
   if (parseBody) app.use(express.json({ limit: "30kb" }));
 
   app.get("/api/health", async (_req, res) => {
-    const emailConfigured = Boolean(process.env.RESEND_API_KEY && process.env.EMAIL_FROM && process.env.NOTIFICATION_EMAIL);
+    const emailConfiguration = getIntakeEmailConfiguration();
     if (!database) {
       return res.status(503).json({
         status: "degraded",
         service: "Golconda Security Services API",
         databaseConfigured: false,
         databaseReachable: false,
-        emailConfigured,
+        emailConfigured: emailConfiguration.configured,
+        emailMissing: emailConfiguration.missing,
       });
     }
 
@@ -102,7 +109,8 @@ export function createApp({
         service: "Golconda Security Services API",
         databaseConfigured: true,
         databaseReachable: true,
-        emailConfigured,
+        emailConfigured: emailConfiguration.configured,
+        emailMissing: emailConfiguration.missing,
       });
     } catch (error) {
       console.error("Supabase health check failed:", error.code || error.name || "Error");
@@ -111,7 +119,8 @@ export function createApp({
         service: "Golconda Security Services API",
         databaseConfigured: true,
         databaseReachable: false,
-        emailConfigured,
+        emailConfigured: emailConfiguration.configured,
+        emailMissing: emailConfiguration.missing,
       });
     }
   });

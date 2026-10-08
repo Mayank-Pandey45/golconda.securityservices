@@ -156,6 +156,40 @@ test("health returns 200 only after a successful Supabase query", async () => {
   });
 });
 
+test("health reports missing intake email variable names without exposing values", async () => {
+  const emailVariables = {
+    RESEND_API_KEY: "test-resend-key",
+    EMAIL_FROM: "GSS Test <test@example.com>",
+    NOTIFICATION_EMAIL: "inbox@example.com",
+  };
+  const originalValues = Object.fromEntries(Object.keys(emailVariables).map((key) => [key, process.env[key]]));
+
+  try {
+    Object.assign(process.env, emailVariables);
+    await withApi(fakeDatabase(), async () => {}, async url => {
+      const configuredResponse = await fetch(`${url}/api/health`);
+      const configured = await configuredResponse.json();
+      assert.equal(configured.emailConfigured, true);
+      assert.deepEqual(configured.emailMissing, []);
+
+      for (const missingVariable of Object.keys(emailVariables)) {
+        delete process.env[missingVariable];
+        const response = await fetch(`${url}/api/health`);
+        const result = await response.json();
+        assert.equal(result.emailConfigured, false);
+        assert.deepEqual(result.emailMissing, [missingVariable]);
+        assert.equal(JSON.stringify(result).includes(emailVariables.RESEND_API_KEY), false);
+        process.env[missingVariable] = emailVariables[missingVariable];
+      }
+    });
+  } finally {
+    for (const [key, value] of Object.entries(originalValues)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  }
+});
+
 test("complaint is stored and the email layer is called", async () => {
   const database = fakeDatabase();
   const emails = [];
