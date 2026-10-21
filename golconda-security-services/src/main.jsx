@@ -4,6 +4,7 @@ import { apiUrl } from "./api";
 import { formatUtcDate, toDateInputValue, toUtcDateTimestamp } from "./dateOnly";
 import { toDateTimeLocalValue, toUtcDateTime, safeNotificationHref } from "./notificationRules.js";
 import { prioritizeNotifications } from "./notificationRules.js";
+import { scrollToPublicSection } from "./publicNavigation.js";
 import CompanyProfile from "./CompanyProfile.jsx";
 import GuardManagement from "./admin/GuardManagement.jsx";
 import ProfileVault from "./admin/ProfileVault.jsx";
@@ -147,6 +148,12 @@ function App() {
     loadPublicContent();
     return () => { active = false; };
   }, []);
+
+  useEffect(() => {
+    if (!isCompanyProfile && !adminMode && !publicContentLoading) {
+      scrollToPublicSection({ hash: window.location.hash, document: window.document });
+    }
+  }, [isCompanyProfile, adminMode, publicContentLoading]);
 
   async function loadPublicProfile() {
     setProfileLoading(true);
