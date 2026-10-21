@@ -37,23 +37,36 @@ policies were changed during this verification.
 
 ## Deployment and scope
 
-The prior Preview at commit `779b337` is READY in Vercel, while the production
-deployment of `36eebf2` failed. The older production deployment remains the
-last successful production release. A fresh Preview must be checked after the
-current fix is pushed. A READY build alone does not verify live API routing.
+Preview code commit `f20c793` is READY at
+`https://golconda-securityservices-p7lz17mqp.vercel.app/` after the server
+configuration correction. Vercel Resources confirms exactly one Node 24 function,
+`/api/[...path]` (2.17 MB). Browser checks render five services, two notifications,
+two events and the company profile. Vercel runtime logs confirm successful
+`GET /api/profile` responses (200); the approved-media empty state renders.
+The production deployment of `36eebf2` failed; main has not been changed in this
+follow-up. PR #2 contains the release: https://github.com/Mayank-Pandey45/golconda.securityservices/pull/2.
 
 Project: `golconda-securityservices`, Vite, Node 24.x. Keep Root Directory set
 to `golconda-security-services`. Keep same-origin `/api/*` URLs and the existing
 security headers. No Pro plan or production Cron is required.
 
-Outbound email remains removed. Telegram and Google Sheets must remain disabled;
-no integration credentials, environment variables, or production settings were
-changed. Required server variables remain `SUPABASE_URL` and
+Outbound email remains removed. Telegram and Google Sheets remain unconfigured;
+the integration outbox contains zero rows. With explicit owner approval, Preview
+scope was added to existing `SUPABASE_URL` and `SUPABASE_SECRET_KEY` values;
+Production scope and values were preserved. Preview therefore uses the existing
+production project: only read-only checks or rejected requests are permitted.
+No production records or integration settings were modified. Required server variables remain `SUPABASE_URL` and
 `SUPABASE_SECRET_KEY`; public build variables remain `VITE_SUPABASE_URL` and
 `VITE_SUPABASE_PUBLISHABLE_KEY`.
 
 69 local tests and the Vite production build passed. The ExcelJS size warning is
 non-fatal. Tests cover the actual catch-all as well as parser, import, payroll,
-authorization, and failure paths. Actual Preview routing, live authenticated
-writes, media uploads, mobile layout, runtime logs, and environment scopes still
-require deployed verification. Do not use production data for destructive tests.
+authorization, and failure paths. Direct unauthenticated HTTP API requests are
+redirected by Vercel Deployment Protection; connector access to protection bypass
+and build logs returns a team-scope 403. Browser login allowed the profile request
+and runtime-log verification. All remaining API routes, admin authentication and
+write workflows, media uploads, and complete mobile visual QA remain unverified
+on the deployment. Logs show a non-fatal dependency `url.parse()` deprecation
+warning; the inspected profile requests have no application failure. No live
+write tests were run. Do not use production data for destructive tests, and do not
+disable Deployment Protection to make automated checks pass.
