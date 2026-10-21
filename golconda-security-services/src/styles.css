@@ -17,6 +17,14 @@
 .event-date{background:linear-gradient(150deg,#132b38,#151d21)}
 .button-gold{background:linear-gradient(110deg,#1685bd,#d9edf7);border-color:#1685bd;color:#07141c}
 
+.update-card.severity-warning{border-color:#806327;background:linear-gradient(145deg,#1b1a16,#111719)}
+.update-card.severity-urgent{border-color:#823d3d;background:linear-gradient(145deg,#211616,#111719)}
+.update-card.severity-warning .update-meta>span:first-child{color:#f0c56b}
+.update-card.severity-urgent .update-meta>span:first-child{color:#ff9f91}
+.notification-more-count{grid-column:1/-1;justify-self:start;padding:8px 0;border:0;background:transparent;color:#9ca7a8;font-size:11px;text-decoration:underline;cursor:pointer}
+.gss-admin-shell .gss-admin-checkbox{display:flex;flex-direction:row;align-items:center;gap:9px;min-height:38px}
+.gss-admin-shell .gss-admin-checkbox input{width:17px;height:17px;accent-color:#99752e;flex:0 0 auto;padding:0}
+
 
 /* ==========================================
    COMPLAINTS SECTION — DARK CYBER THEME
@@ -377,3 +385,5 @@
     animation: none !important;
   }
 }
+.faq-section{background:#f5f7f8;border-top:1px solid #e1e6e8;border-bottom:1px solid #e1e6e8}.faq-list{display:grid;grid-template-columns:1fr 1fr;gap:10px}.faq-list details{border:1px solid #dbe2e5;background:#fff;padding:15px 17px}.faq-list summary{font-size:13px;font-weight:700;color:#1c2a32;cursor:pointer;line-height:1.5}.faq-list details p{font-size:12px;color:#58666c;line-height:1.65;margin:12px 0 0}.footer-credit{padding:0 0 14px;color:#697576;text-align:right;font-size:9px}.footer-bottom nav{display:flex;gap:12px;flex-wrap:wrap}.footer-bottom nav a{font-size:9px}
+@media(max-width:720px){.faq-list{grid-template-columns:1fr}}

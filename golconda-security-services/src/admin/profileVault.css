@@ -1,0 +1,11 @@
+.gss-profile-vault{display:grid;gap:16px}
+.gss-profile-vault .profile-vault-warning{grid-column:1/-1;margin:0;padding:11px 13px;border-left:3px solid #d97706;background:#fff7ed;color:#7c2d12;font-size:11px;line-height:1.7}
+.gss-profile-vault label small{font-size:10px;font-weight:400;color:#667085;line-height:1.5}
+.profile-publish-option{flex-direction:row!important;align-items:center;gap:10px!important;min-height:40px}
+.profile-publish-option input{width:18px!important;height:18px;accent-color:#99752e}
+.profile-publish-option span{font-size:12px}
+.profile-vault-list{display:grid;gap:11px}
+.profile-vault-thumb{display:block;width:min(300px,100%);max-height:190px;object-fit:cover;border:1px solid #dce2eb;border-radius:6px;margin-top:10px}
+.file-upload-progress{display:flex;align-items:center;gap:10px;padding:10px 12px;background:#f5f7fa;border:1px solid #dce2eb;border-radius:7px;color:#334155;font-size:12px}
+.file-upload-progress progress{width:100px;height:8px;accent-color:#99752e}
+@media(max-width:600px){.gss-profile-vault .gss-admin-form{grid-template-columns:1fr}.gss-profile-vault .gss-admin-form label.full,.gss-profile-vault .gss-admin-form h3,.gss-profile-vault .profile-vault-warning,.gss-profile-vault .gss-admin-form-actions{grid-column:1}}

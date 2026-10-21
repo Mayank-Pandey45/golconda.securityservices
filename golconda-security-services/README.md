@@ -1,72 +1,75 @@
 # Golconda Security Services
 
-Responsive React/Vite site with a Vercel-hosted serverless API and Supabase-backed public content and administration.
+Responsive React/Vite company website and admin operations dashboard, using Supabase for authentication, database and private file storage, with Node.js API functions on Vercel.
 
 ## Local development
 
-Requirements: Node.js 22.9 or newer and npm.
+Use Node.js 22.9 or newer and npm:
 
 ```sh
 npm ci
 npm run dev
 ```
 
-Vite runs on `http://localhost:5173`; the local Express API runs on port 4000. Vite proxies relative `/api/*` requests to Express. `npm test` runs the API and date-format tests; `npm run build` creates the static frontend in `dist/`.
+Vite runs on `http://localhost:5173`; the local Express API runs on port 4000. Vite proxies same-origin `/api/*` calls to Express. Use `npm test` for the unit/API suite and `npm run build` for the production frontend build.
 
 ## Architecture
 
-- `src/` contains the React frontend. It calls Supabase directly with the public publishable key for public content, Supabase Auth, and admin operations governed by RLS.
-- `api/` contains one Node.js Vercel Function per existing Express endpoint. The functions reuse the Express route handlers but do not serve static files; Vercel serves the Vite output separately.
-- `server/` contains shared API validation, Supabase service client, Resend integration, and the Express app used by local development.
-- `supabase/migrations/` contains the additive database schema and policy changes for operations and intake submissions.
+- `src/` contains the React public site, Supabase Auth integration, and admin modules.
+- `api/` contains one Vercel Function wrapper per real `/api/*` route. Shared adapter code is in `server/vercelAdapter.js`, outside `api/`, to prevent Vercel from discovering a helper as a route.
+- `server/` contains Express route handlers, validation, Supabase service client initialization, operations workflows, and the Vercel adapter.
+- `shared/` contains input normalization shared by browser previews and server-side validation.
+- `supabase/migrations/` contains schema and RLS changes. Review and apply them in order before deploying features that depend on them.
+- `public/` contains the logo, sitemap, robots file, and draft Terms and Privacy pages.
 
-All browser API requests are relative same-origin paths under `/api/`. Vercel serves the frontend and its API functions from the same deployment, so `CLIENT_ORIGINS` and `VITE_API_URL` are not required. No `vercel.json` is needed: this app uses hash anchors and has no client-side pathname routes; Vercel detects Vite and the `api/` functions from the project root.
+The browser always calls `/api/...` on its current origin. Production does not configure CORS or `CLIENT_ORIGINS`; local development uses only the Vite proxy. `vercel.json` configures response security headers and long-lived caching for content-hashed assets.
 
-## API endpoints
+## API routes
 
-- `GET /api/health` — checks Supabase connectivity and reports safe configuration flags; returns 503 if Supabase is unavailable.
-- `POST /api/contact` — validates and stores contact enquiries, then attempts a Resend email.
-- `POST /api/applications` — validates and stores job applications, then attempts a Resend email.
-- `POST /api/complaints` — validates and stores complaints, then attempts a Resend email.
-- `POST /api/send-message` — sends an admin message through Resend after verifying the Supabase bearer token and `public.admin_users` membership.
+- `GET /api/health` — checks live Supabase reachability.
+- `GET /api/profile` — returns only approved public profile documents and short-lived signed object links.
+- `POST /api/contact`, `/api/applications`, `/api/complaints` — validate and persist submissions. Success is shown only after the API confirms a saved record ID. No outbound email is sent.
+- `POST /api/guards/import` — admin-authenticated guard CSV/XLSX import.
+- `POST /api/operations/sites`, `/api/operations/site-import` — site management, staff assignments and transactional site import.
+- `POST /api/operations/people` — supervisor and field-officer management.
+- `POST /api/operations/guards` — guard management and multi-site assignments.
+- `GET, POST /api/operations/advances` — filtered/paginated register, record corrections, salary recoveries, and adjustments.
+- `GET /api/operations/payroll` — monthly salary estimates.
 
-Intake endpoints return success only after the row is stored. If email delivery fails after persistence, the response clearly reports that the record was saved and email was not sent. The Express rate limiter remains useful in local development. Vercel production requires a published Firewall rate-limit rule because in-memory function state is not shared across serverless instances. Create one rule matching `POST` and the path expression `^/api/(contact|applications|complaints)$`, keyed by IP, with a fixed window of 10 requests per 10 minutes and the default 429 action. Vercel currently supports Firewall rate limiting on all plans; quotas and pricing vary by plan.
+Vercel function wrappers enforce methods, content types, and body limits. API mutations verify a Supabase bearer token and `admin_users` membership server-side; database routines also verify the administrator.
 
-## Supabase and administration
+## Supabase and data
 
-Public visitors can read services, events, and notifications. Admin users sign in with Supabase Auth; the frontend verifies membership in `public.admin_users`. Admin CRUD for services, events, notifications, sites, guards, complaints, profile documents, contact submissions, and applications uses the public Supabase client under RLS. Guards are assigned through `guards.site_id`; the legacy `sites.assigned_guards` field is not used for assignment display.
+Services, Events, and Notifications are database-backed. Public notification reads are restricted by RLS to active and published records. Complaint, contact, and job submissions persist in Supabase. Private guard and employee details are admin-only; public company profile files require explicit publication approval.
 
-Public submissions and admin email delivery use the server-only Supabase secret key. Create the admin Auth user and add its UUID to `public.admin_users` using an authorized database session. Never expose the secret key or Resend API key to the browser.
+The live schema currently has the two 7 October migrations applied. The 8 October profile/notification migration and 21 October operations migration remain pending. The latter adds supervisors, field officers, assignment history, compensation, financial records, RLS and audit routines. See [PROJECT_STATUS.md](./PROJECT_STATUS.md) before applying either migration.
 
-The project migrations are additive and preserve existing content. Confirm these migrations are applied to the Supabase project before deploying:
+Legacy `guards.site_id` remains a compatibility pointer to one active site; the UI uses `guard_site_assignments` for the multiple-site source of truth. `sites.assigned_guards` is not used by the UI. Payroll estimates exclude daily guard rates and automatic ESI/PF deductions; see the admin disclosure and project status.
 
-- `20261007160814_operations_and_intake.sql`
-- `20261007160935_tighten_admin_policies.sql`
+## Vercel environment variables
 
-No Vercel-specific database migration is required. The current project has no Supabase Storage upload bucket; the profile vault manages external document URLs only.
+Configure these four values for each intended Vercel environment:
 
-Enable Supabase leaked-password protection in Dashboard → **Authentication → Attack Protection → Leaked Password Protection**.
+| Variable | Scope |
+| --- | --- |
+| `SUPABASE_URL` | Server runtime |
+| `SUPABASE_SECRET_KEY` | Server runtime only; never browser-visible |
+| `VITE_SUPABASE_URL` | Vite build/browser |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | Vite build/browser |
 
-## Vercel deployment
+Keep `VITE_API_URL` empty; calls are same-origin. `CLIENT_ORIGINS` is not required. `RESEND_API_KEY`, `EMAIL_FROM`, and `NOTIFICATION_EMAIL` are not used. `.env.example` contains no secrets; `PORT=4000` is only a local development default.
 
-Import the Git repository in Vercel and set **Root Directory** to `golconda-security-services`. Use a Node.js version satisfying the package engine (`>=22.9`; Vercel Node 22.x or 24.x works), Vite, install command `npm ci`, build command `npm run build`, and output directory `dist`. Leave the root directory included in the build. Do not configure a Render service or a separate API origin.
+Optional Telegram and Google Sheets variables are listed in `.env.example` and described in [INTEGRATIONS_SETUP.md](./INTEGRATIONS_SETUP.md). They are server-only and should be configured only after the matching migrations are applied and Preview verification is complete. Google sync also requires a scheduler that calls the authenticated worker.
 
-Add these variables in Vercel Project Settings → Environment Variables for the environments you will use:
+In Vercel, use the repository's `golconda-security-services` project root, `npm ci`, `npm run build`, output directory `dist`, and a Node.js runtime meeting the package engine. Keep Preview on a non-production Supabase project.
 
-| Variable | Scope | Purpose |
-| --- | --- | --- |
-| `SUPABASE_URL` | Server runtime | Supabase project URL for server API functions |
-| `SUPABASE_SECRET_KEY` | Server runtime only | Privileged writes and admin token verification; secret key, never browser-visible |
-| `VITE_SUPABASE_URL` | Build/browser | Supabase project URL for public client |
-| `VITE_SUPABASE_PUBLISHABLE_KEY` | Build/browser | Public Supabase publishable key |
-| `RESEND_API_KEY` | Server runtime only | Resend email delivery key |
-| `EMAIL_FROM` | Server runtime | Verified sender address/name in Resend |
-| `NOTIFICATION_EMAIL` | Server runtime | Destination for intake notifications |
+## Manual production prerequisites
 
-`CLIENT_ORIGINS` is not required: frontend and API share one Vercel origin, and the API does not grant cross-origin browser access. `VITE_API_URL` is intentionally removed; the frontend always calls same-origin `/api/*`. Vercel supplies `NODE_ENV` and the function port.
+1. Apply the pending migrations to a staging Supabase project, inspect RLS and private buckets, then apply them to production in timestamp order.
+2. Enable leaked-password protection in Supabase Dashboard → **Authentication → Attack Protection → Leaked Password Protection**; verify public signup and admin membership settings.
+3. Publish a Vercel Firewall IP rate-limit rule for the public form and guard-import `POST` routes. The in-process Express limiter is not shared across serverless instances.
+4. Preview-test the functions, public forms, admin operations, and financial flows before promoting to the canonical domain.
 
-Before enabling public traffic, create and publish the Firewall rule for the three intake `POST` routes, then verify `/api/health`, a contact submission, a complaint, an application, admin login/CRUD, and a test Resend delivery. If Vercel Preview deployments use production Supabase data, protect them or configure preview variables to use a non-production Supabase project.
+Telegram advance entry and Google Sheets sync are implemented but remain unconfigured and unverified against real credentials. The current Google outbox migration queues new advances only. Safe setup and verification steps are documented in [INTEGRATIONS_SETUP.md](./INTEGRATIONS_SETUP.md). Load-test instructions are in [SECURITY_AUDIT.md](./SECURITY_AUDIT.md); the k6 script is `scripts/k6-load.js`.
 
-## Project status
-
-See [PROJECT_STATUS.md](./PROJECT_STATUS.md) for current migrations, tests, and operator actions.
+The Terms and Privacy pages are drafts and need owner/legal review. No live migration, commit, push, or deployment was performed as part of this task.

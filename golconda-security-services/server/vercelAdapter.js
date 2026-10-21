@@ -1,11 +1,13 @@
-import { createApp } from "../server/index.js";
+import { createApp } from "./index.js";
 
+// Vercel treats files inside api/ as serverless routes. Keep this shared
+// adapter outside api/ so it cannot be discovered as a phantom endpoint.
 // Vercel supplies Node request/response objects and parses JSON bodies before
 // invoking a function. Express is used here only as a route adapter; Vercel
 // serves the Vite build separately from its static output.
 const app = createApp({ staticFiles: false, parseBody: false });
 
-export function createVercelRouteHandler(routePath, methods, application = app) {
+export function createVercelRouteHandler(routePath, methods, application = app, maxBodyBytes = 30 * 1024) {
   return (req, res) => {
     const method = String(req.method || "").toUpperCase();
     if (!methods.includes(method)) {
@@ -22,8 +24,8 @@ export function createVercelRouteHandler(routePath, methods, application = app) 
       const declaredLength = Number(req.headers?.["content-length"]);
       const bodyText = typeof req.body === "string" ? req.body : JSON.stringify(req.body ?? "");
       const actualLength = Buffer.byteLength(bodyText || "", "utf8");
-      if ((Number.isFinite(declaredLength) && declaredLength > 30 * 1024) || actualLength > 30 * 1024) {
-        return res.status(413).json({ error: "Request body must be 30 KB or smaller." });
+      if ((Number.isFinite(declaredLength) && declaredLength > maxBodyBytes) || actualLength > maxBodyBytes) {
+        return res.status(413).json({ error: `Request body must be ${Math.floor(maxBodyBytes / 1024)} KB or smaller.` });
       }
     }
 

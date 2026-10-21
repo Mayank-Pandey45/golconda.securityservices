@@ -62,18 +62,3 @@ export function normalizeComplaint(body) {
     details: text(input.details, "Complaint details", { required: true, max: 5000 }),
   };
 }
-
-export function normalizeMessage(body, fallbackRecipient) {
-  const input = bodyObject(body);
-  const rawRecipients = input.recipients ?? input.recipient ?? fallbackRecipient;
-  const recipients = (Array.isArray(rawRecipients) ? rawRecipients : String(rawRecipients || "").split(","))
-    .map((recipient) => email(recipient, "Recipient"));
-  if (!recipients.length || recipients.length > 10) {
-    throw new ValidationError("Provide between 1 and 10 email recipients.");
-  }
-  return {
-    title: text(input.title, "Title", { required: true, max: 200 }),
-    message: text(input.message, "Message", { required: true, max: 5000 }),
-    recipients: [...new Set(recipients)],
-  };
-}

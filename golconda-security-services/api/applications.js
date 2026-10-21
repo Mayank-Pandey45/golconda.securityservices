@@ -1,3 +1,3 @@
-import { createVercelRouteHandler } from "./_express.js";
+import { createVercelRouteHandler } from "../server/vercelAdapter.js";
 
 export default createVercelRouteHandler("/api/applications", ["POST"]);
