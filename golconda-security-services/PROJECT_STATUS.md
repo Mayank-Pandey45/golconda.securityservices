@@ -1,55 +1,123 @@
-# Project Status — 2026-10-08
+# Golconda Security Services — Project Status
 
-## Current architecture
+**Review date:** 21 October 2026
+**Branch:** `codex/complete-implementation`
+**State:** Local changes only. Nothing has been committed, pushed, or deployed.
 
-- React 18/Vite serves the public site and admin dashboard as static frontend assets.
-- Supabase JS in the browser handles public reads, Supabase Auth, and admin CRUD subject to RLS. The frontend uses only `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`.
-- The existing Express routes are still used by local development. Vercel exposes each route through a Node.js serverless function under `api/`; the Vite `dist/` frontend is deployed separately by Vercel's Vite support.
-- Frontend API calls are always same-origin `/api/*`. Production CORS allowlists and `CLIENT_ORIGINS` are unnecessary for this deployment model. The Vite proxy to localhost:4000 is development-only.
-- Render-only `render.yaml` was removed. There is no `vercel.json` because the app uses hash anchors rather than pathname routing; Vercel's Vite detection and `api/` function discovery provide the required deployment behavior.
+## Architecture and current deployment
 
-## API and behavior
+- React 18/Vite builds the public site and admin dashboard into `dist/`.
+- Supabase JS in the browser uses only `VITE_SUPABASE_URL` and `VITE_SUPABASE_PUBLISHABLE_KEY`. Public content and admin CRUD use Supabase RLS.
+- Node.js Vercel Functions live under `api/`. They adapt the existing Express routes through `server/vercelAdapter.js`; helper code is outside `api/` so it is not discovered as a route.
+- Production API calls use same-origin `/api/*`. Vercel CORS is not enabled. `CLIENT_ORIGINS` and `VITE_API_URL` are not required; leave `VITE_API_URL` empty.
+- `vercel.json` adds security headers and immutable caching for Vite's hashed `/assets/*` files. Render configuration is not used.
+- This app is nested under `golconda-security-services/` in the Git repository. Set Vercel Project Settings → Build and Deployment → Root Directory to `golconda-security-services`.
+- Canonical site URL: `https://golconda-securityservices.vercel.app/`.
 
-Vercel functions are present for `GET /api/health`, `POST /api/contact`, `POST /api/applications`, `POST /api/complaints`, and `POST /api/send-message`. They reuse the same Express validation and persistence logic as local development. The Vercel adapter avoids reparsing JSON bodies already parsed by the Vercel Node runtime and restricts each function to its intended HTTP method.
+The last recorded live Vercel check found the previous build. Vercel was not re-queried during this pre-release pass; the implementation in this worktree has not been deployed from this branch.
 
-Health checks query Supabase and return 503 on missing configuration or a database error. Intake rows are persisted before email notification is attempted; an email failure is returned as a warning and cannot produce a false database failure or undo the stored row. Admin messaging validates a Supabase bearer token and `public.admin_users` membership before sending.
+## Last recorded live Supabase snapshot
 
-The existing 10 requests per IP per 15 minutes Express limiter is process-local and therefore only a local/development safeguard under Vercel's horizontally scaled serverless execution. Before public traffic, create and publish one Vercel Firewall rule matching POST plus path expression `^/api/(contact|applications|complaints)$`; use an IP key, fixed window, 10 requests per 10 minutes, and default 429 action. Vercel currently lists WAF rate limiting on all plans; quotas and pricing vary by plan.
+This is a prior read-only snapshot, not a live check performed during this pre-release pass. No staging Supabase credentials or local Supabase/PostgreSQL tooling were available in this worktree environment.
 
-## Supabase data and security
+Read-only inspection of the connected project showed:
 
-Existing tables: `admin_users`, `services`, `events`, `notifications`, `complaints`, `sites`, `profile_docs`, `guards`, `contact_submissions`, and `job_applications`.
+| Data | Live count/status |
+| --- | ---: |
+| Services | 5 |
+| Events | 2 |
+| Notifications | 2 |
+| Sites | 1 |
+| Guards | 1 |
+| Profile documents | 0 |
+| Supervisors / field officers | Tables do not exist yet |
 
-Services, events, notifications, sites, guards, complaints, contact submissions, and job applications are database-backed. Admin dashboard counts use exact Supabase table counts. Services/events/notifications public display and admin CRUD are database-backed. Guard-site assignments use `guards.site_id`; the compatibility `sites.assigned_guards` field is not used to derive UI assignments.
+Applied migrations: `20261007160814_operations_and_intake.sql` and `20261007160935_tighten_admin_policies.sql`.
 
-Tracked additive migrations:
+Pending migrations, in order:
 
-- `supabase/migrations/20261007160814_operations_and_intake.sql`
-- `supabase/migrations/20261007160935_tighten_admin_policies.sql`
+1. `20261008164000_public_profile_guard_management_notifications.sql` — guard salary/profile columns, normalized phone uniqueness, public-notification scheduling/policies, private `company-profile` bucket and admin policy.
+2. `20261021151502_operations_platform_core.sql` — site billing/status fields, supervisors, field officers, dated many-to-many assignment history, compensation and salary adjustments, advances/recoveries/corrections, audit triggers, RLS, private employee storage, and guarded database routines.
+3. `20261021191500_advance_integrations_outbox.sql` — private, opt-in Google Sheets outbox, leased batch claim, and service-role-only retry/completion routines. With the integration flag off or incomplete server credentials, advance writes add no outbox row.
 
-These were previously confirmed applied to the connected Supabase project; confirm migration history before a new environment is used. Existing data was preserved. After explicitly removing the two identified placeholders, the last verified production counts were services 5, events 2, and notifications 2; sites, guards, complaints, contact submissions, and applications were 0, and profile documents were 1. No database changes are required specifically for Vercel.
+The pending migrations have **not** been applied to production. The second migration backfills existing `guards.site_id` values into `guard_site_assignments`; the legacy `guards.site_id` remains a compatibility pointer to the first active assignment. The admin UI uses the assignment table. The legacy `sites.assigned_guards` field is not used by the UI.
 
-Supabase Auth leaked-password protection is a manual Dashboard setting: **Authentication → Attack Protection → Leaked Password Protection**. It is not changed by application code.
+No production rows were added, deleted, or migrated during this task. The new data tables and policies are therefore not available in the current live schema until the migrations are reviewed and applied.
 
-## Environment variables
+## API endpoints
 
-Set these Vercel Project environment variables:
+| Method and path | Purpose / authorization |
+| --- | --- |
+| `GET /api/health` | Checks actual Supabase reachability; returns 503 when the database cannot be reached. |
+| `GET /api/profile` | Returns approved public profile files only; signed links for private bucket objects expire after one hour. |
+| `POST /api/contact` | Validates and stores contact submissions. |
+| `POST /api/applications` | Validates and stores job applications. |
+| `POST /api/complaints` | Validates and stores complaints. |
+| `POST /api/guards/import` | Requires a valid Supabase session and `admin_users` membership; validates again on the server. |
+| `POST /api/operations/sites` | Admin-only site CRUD and relationship assignment. |
+| `POST /api/operations/site-import` | Admin-only validated site/people import; database routine commits the batch transactionally. |
+| `POST /api/operations/people` | Admin-only supervisor/field-officer CRUD and assignment updates. |
+| `POST /api/operations/guards` | Admin-only guard CRUD and multi-site assignments. |
+| `GET, POST /api/operations/advances` | Admin-only paginated/filterable register, corrections, recoveries, and salary adjustment actions. |
+| `GET /api/operations/payroll` | Admin-only monthly estimate with dated compensation and explicit advance recoveries. |
+| `POST /api/integrations/telegram` | Validates the Telegram webhook secret and private sender allowlist, then records a deduplicated advance through the existing database routine. Disabled until Telegram variables are configured. |
+| `GET /api/integrations/sheets-sync` | Requires a `CRON_SECRET` bearer token and syncs a bounded outbox batch to Google Sheets with retryable failures. Disabled until Google variables are configured. |
 
-- Server runtime only: `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, `RESEND_API_KEY`, `EMAIL_FROM`, `NOTIFICATION_EMAIL`.
-- Vite build/browser: `VITE_SUPABASE_URL`, `VITE_SUPABASE_PUBLISHABLE_KEY`.
+Public intake success is returned only after the database insert returns a record ID. The frontend requires `{ ok: true, id }` before showing success. Outbound email delivery is disabled, and the former admin message-to-applicant/complainant API and email sender were removed. Contact, complaint, and application records still persist; no Resend call is made.
 
-`SUPABASE_SECRET_KEY` and `RESEND_API_KEY` must never use a `VITE_` prefix. `CLIENT_ORIGINS` is not required for same-origin Vercel functions. `VITE_API_URL` is removed so API calls cannot silently point to another host. `NODE_ENV` and the function port are managed by Vercel. `.env.example` contains blank placeholders only.
+## Admin features in the local implementation
 
-## Vercel deployment steps
+- Database-backed counts for services, events, notifications, sites, guards, supervisors, field officers, advances, complaints, enquiries, applications, and profile documents.
+- Database-backed Services, Events, and Notifications; public notification reads are restricted by RLS to active, published, unexpired records.
+- Site create/edit/deactivate/safe-delete, service-specific client billing, staff selection, import preview, template, and export.
+- Guard add/edit/deactivate/safe-delete, profile fields, private photo, multiple active site assignments, CSV/XLSX import preview and export. The import uses the same `save_guard_profile` routine as manual edits and accepts several site names/codes separated by semicolons.
+- Supervisor and field-officer management, site assignment and reporting relationships, compensation and private profile fields. CSV export is available; bulk import for these two directories is not implemented yet.
+- Advances for all three employee types, date/month/site/person filters, paginated results, filtered CSV/XLSX export, audited correction/reversal, and one salary-period recovery allocation per advance.
+- Telegram advance entry code is present but disabled until separately configured and tested; it uses employee/site codes, a private-chat sender allowlist, webhook secret, database idempotency key, and original-message UTC timestamp.
+- Google Sheets code is present but disabled. The server opts into outbox enqueue only when `GOOGLE_SHEETS_SYNC_ENABLED=true` and the sheet ID, valid service-account key, and sufficiently long `CRON_SECRET` are all present. Otherwise advance records do not create unsynced queue entries. No Vercel Cron job is configured.
+- Salary estimates use monthly compensation, calendar-day proration, approved adjustments, and explicitly allocated recoveries. Joining and employment-end dates are inclusive; inactive status alone does not stop accrual. Advance events and recovery/adjustment entries use an exclusive next-month Asia/Kolkata midnight cutoff; `salary_period` assigns a recovery month. Daily guard rates are stored on the profile but are not included in estimates because attendance is not tracked. ESI/PF reference fields do not calculate automatic deductions.
+- Company profile uploads are private by default; an admin must explicitly approve public material. The terms and privacy pages are drafts requiring owner/legal review.
 
-1. Import the repository in Vercel and set Root Directory to `golconda-security-services`.
-2. Use Vite, install command `npm ci`, build command `npm run build`, and output directory `dist`.
-3. Add the seven environment variables above to Production. Configure Preview/Development separately; avoid pointing untrusted Preview deployments at production data.
-4. Deploy a Preview first. Verify the API functions and admin flows there.
-5. In Vercel Firewall, create and publish the IP-based rate-limit rule for the three public intake POST paths (10 requests per 10 minutes).
-6. Configure Supabase Auth leaked-password protection, confirm migrations/admin user, then promote the verified deployment to Production.
-7. Verify production health, all three public forms, admin authentication/CRUD, and a safe Resend message.
+## Security and operational limits
+
+- Sensitive API writes verify the Supabase bearer session and admin membership server-side. Database routines repeat the admin check. New operational tables use RLS; financial correction and recovery rows are append-only for authenticated users, and audit-log writes are revoked from authenticated users.
+- `employee-private` and `company-profile` are private buckets with administrator-only object policies. Public profile access uses an approved record and expiring signed URL.
+- Express rate limits are process-local. They are useful in local development but are not an aggregate serverless limit. Publish a Vercel Firewall IP rate-limit rule for `POST /api/contact`, `/api/applications`, `/api/complaints`, `/api/guards/import` before production traffic.
+- CAPTCHA is not implemented. Reassess only if Vercel Firewall controls and observed abuse require it; no CAPTCHA credentials are present.
+- Telegram and Google Sheets code is implemented and covered by mocked regression tests, but neither integration is enabled or live-verified. The outbox migration is pending. Do not configure these integrations or add a production cron until separately approved. See `INTEGRATIONS_SETUP.md` for future Preview-only validation requirements.
+- Production Auth settings such as MFA, public signup, and leaked-password protection must be checked in Supabase Dashboard. Enable leaked-password protection at **Authentication → Attack Protection → Leaked Password Protection**.
+- Supabase CLI, Docker, and `psql` are not installed, and no explicitly identified isolated staging connection is configured. The migrations were reviewed as source only; they have not been parsed by PostgreSQL or applied to any database in this pass.
+- Admin directory screens currently load a full authorized directory for client-side search/assignment views. Advances are paginated. Large-directory load testing and converting the remaining directories to server-side pagination remain open performance work.
+
+## Supabase seed configuration
+
+`supabase/config.toml` has `[db.seed] enabled = false` and `sql_paths = []`. There is no seed file and no invalid seed reference. Do not enable a production seed/reset workflow.
+
+## Required production environment variables
+
+| Variable | Where it is used |
+| --- | --- |
+| `SUPABASE_URL` | Vercel server runtime |
+| `SUPABASE_SECRET_KEY` | Vercel server runtime only; never expose to the browser |
+| `VITE_SUPABASE_URL` | Vite build/browser public client |
+| `VITE_SUPABASE_PUBLISHABLE_KEY` | Vite build/browser public client |
+
+Optional integrations are currently disabled and must stay disabled during this validation. If separately approved later, Telegram uses `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `TELEGRAM_ALLOWED_USER_IDS`, and `TELEGRAM_ADMIN_USER_ID`. Sheets additionally requires `GOOGLE_SHEETS_SYNC_ENABLED=true`, `GOOGLE_SERVICE_ACCOUNT_JSON`, `GOOGLE_SHEET_ID`, and `CRON_SECRET` (at least 32 characters); `GOOGLE_SHEET_TAB` is optional. These are server-only settings. Do not configure them now or add a production Cron job.
+
+`VITE_API_URL` remains empty for same-origin Vercel functions. `CLIENT_ORIGINS` is not required. `RESEND_API_KEY`, `EMAIL_FROM`, and `NOTIFICATION_EMAIL` are no longer used by this implementation and must not be added to `.env.example`. `PORT` is only for local Express development.
+
+## Deployment order for the owner
+
+1. Create or identify an isolated Supabase staging project and verify its project reference in Supabase Dashboard. Do not use Production.
+2. In the staging SQL Editor, run `supabase/preflight_staging.sql` read-only. Resolve missing baseline history/schema prerequisites, public bucket findings, or duplicate normalized phone groups before considering migrations.
+3. Back up staging. Review and apply the migrations in timestamp order in staging only. Verify migration history, private buckets, RLS, foreign keys, import behavior, payroll boundaries, assignment closure, and transaction rollback using synthetic records.
+4. Point a Vercel Preview deployment only at staging and add the Vercel Firewall IP rate-limit rule before public testing.
+5. In Supabase Dashboard, enable leaked-password protection at Authentication → Attack Protection → Leaked Password Protection; review signup, redirect, and admin membership settings.
+6. Run the Preview workflows and denied-access/storage tests. Keep Telegram, Sheets, email, and Vercel Cron disabled.
+7. Production migration and deployment require a separate review and explicit release decision. Do not apply migrations to Production during staging validation.
 
 ## Verification status
 
-Vercel API route wrappers, same-origin API URL behavior, body-size/content-type checks, and updated documentation are in place. `npm test` passes (16 tests), `npm run build` succeeds (1,622 modules), `npm audit --audit-level=moderate` reports zero vulnerabilities, and `git diff --check` passes. Vercel deployment and live forms/email verification have not been run. No commit, push, or deployment has been made.
+- Current local verification: `npm test` **PASS, 64/64**; `npm run build` **PASS**, with the existing ExcelJS chunk warning (~940 KB / 271 KB gzip); `npm audit --audit-level=moderate` **PASS, 0 vulnerabilities**; `git diff --check` **PASS**.
+- Static SQL migration contract tests and JS policy examples do not execute PostgreSQL. No SQL was executed in this worktree; staging execution is blocked because no explicitly identified staging database or local PostgreSQL tooling is configured.
+- Telegram and Google behavior is tested with mocked providers only. No Vercel deployment, credential-backed integration test, load test, or real-user test was performed.

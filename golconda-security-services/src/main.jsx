@@ -2,16 +2,36 @@ import React, { useEffect, useState } from "react";
 import { supabase, supabaseError } from "./supabase";
 import { apiUrl } from "./api";
 import { formatUtcDate, toDateInputValue, toUtcDateTimestamp } from "./dateOnly";
+import { toDateTimeLocalValue, toUtcDateTime, safeNotificationHref } from "./notificationRules.js";
+import { prioritizeNotifications } from "./notificationRules.js";
+import CompanyProfile from "./CompanyProfile.jsx";
+import GuardManagement from "./admin/GuardManagement.jsx";
+import ProfileVault from "./admin/ProfileVault.jsx";
+import SiteManagement from "./admin/SiteManagement.jsx";
+import PeopleManagement from "./admin/PeopleManagement.jsx";
+import AdvancesManagement from "./admin/AdvancesManagement.jsx";
+import AnnouncementBanner from "./AnnouncementBanner.jsx";
 import { createRoot } from "react-dom/client";
 import {
   Shield, ShieldCheck, Menu, X, ArrowUpRight, ArrowRight, LockKeyhole,
   Globe, Code2, GraduationCap, UserRound, Bell, CalendarDays, Users,
-  FileText, Image as ImageIcon, PlayCircle, Linkedin, Instagram, Youtube,
-  Facebook, Send, Mail, Phone, MapPin, ChevronRight, CheckCircle2, LogOut, Plus, Trash2, Pencil, RefreshCw, AlertCircle, Building2
+  FileText, Mail, Phone, MapPin, ChevronRight, CheckCircle2, LogOut, Plus, Trash2, Pencil, RefreshCw, AlertCircle, Building2
 } from "lucide-react";
 import "./styles.css";
 
 const serviceIconMap = { "shield-check": ShieldCheck, shield: Shield, globe: Globe, code: Code2, "graduation-cap": GraduationCap };
+
+async function fetchAllSupabaseRows(table, columns = "*") {
+  const allRows = [];
+  const pageSize = 1000;
+  for (let from = 0; from < 1000000; from += pageSize) {
+    const { data, error } = await supabase.from(table).select(columns).order("id", { ascending: true }).range(from, from + pageSize - 1);
+    if (error) return { data: null, error };
+    allRows.push(...(data || []));
+    if (!data || data.length < pageSize) break;
+  }
+  return { data: allRows, error: null };
+}
 
 function Brand({ footer = false }) {
   return <a className={`brand ${footer ? "brand-footer" : ""}`} href="#home" aria-label="Golconda Security Services home">
@@ -34,6 +54,11 @@ function App() {
   const [publicContent, setPublicContent] = useState({ services: [], events: [], notifications: [] });
   const [publicContentLoading, setPublicContentLoading] = useState(true);
   const [publicContentError, setPublicContentError] = useState("");
+  const [profileDocuments, setProfileDocuments] = useState([]);
+  const [profileLoading, setProfileLoading] = useState(true);
+  const [profileError, setProfileError] = useState("");
+  const [notificationNow, setNotificationNow] = useState(Date.now());
+  const [showAllPublicNotifications, setShowAllPublicNotifications] = useState(false);
   const [contact, setContact] = useState({ name: "", email: "", service: "Web Security", message: "" });
   const [application, setApplication] = useState({ name: "", email: "", role: "Security Guard / ASO", message: "" });
   const [complaintForm, setComplaintForm] = useState({ complainant_name: "", role: "Security Guard", phone: "", subject: "", details: "" });
@@ -55,6 +80,9 @@ function App() {
     services: [],
     sites: [],
     guards: [],
+    supervisors: [],
+    fieldOfficers: [],
+    advances: [],
     profileDocs: [],
     complaints: [],
     contactSubmissions: [],
@@ -67,6 +95,7 @@ function App() {
   // Forms for different admin tabs
   const [itemForm, setItemForm] = useState({
     title: "", description: "", event_date: "", image_url: "", message: "", tag: "", icon_key: "shield-check", sort_order: "0", event_type: "COMMUNITY", display_status: "", notification_type: "COMPANY UPDATE", display_date: "",
+    notification_severity: "announcement", starts_at: "", expires_at: "", is_active: true, is_published: false, dismissible: true, button_label: "", button_url: "",
     // Site specific fields
     phone_numbers: "", total_salary: "", service_taken: "SECURITY GUARD", given_emails: "", supervisor_name: "", field_officer_name: "",
     // Guard fields
@@ -81,7 +110,10 @@ function App() {
     notifications: { title: "Manage Notifications", description: "Publish announcements and safety updates." },
     services: { title: "Manage Services", description: "Configure physical security and cybersecurity services." },
     sites: { title: "Sites & Deployments", description: "Manage deployment sites, supervisors, field officers, phone numbers & emails." },
-    guards: { title: "Guard Directory", description: "Manage guard records and assign each guard to one site." },
+    guards: { title: "Guard Directory", description: "Manage guard records and assign each guard to one or more sites." },
+    supervisors: { title: "Supervisors", description: "Manage supervisor profiles, site assignments, reporting relationships, and compensation." },
+    fieldOfficers: { title: "Field Officers", description: "Manage field officer profiles, site assignments, reporting relationships, and compensation." },
+    advances: { title: "Advances & Salary Estimates", description: "Record advances, recover them once against a salary period, and review a transparent monthly estimate." },
     profileDocs: { title: "Company Profile Vault", description: "Upload and organize company documents, certifications, and media files." },
     complaints: { title: "Complaints Register", description: "Review and resolve complaints submitted by guards, supervisors, and clients." },
     contactSubmissions: { title: "Contact Enquiries", description: "Review website enquiries stored in the database." },
@@ -99,7 +131,7 @@ function App() {
       const [services, events, notifications] = await Promise.all([
         supabase.from("services").select("id,title,description,image_url,tag,icon_key,sort_order,created_at").order("sort_order", { ascending: true }).order("created_at", { ascending: true }),
         supabase.from("events").select("id,title,description,event_date,image_url,event_type,display_status,sort_order,created_at").order("sort_order", { ascending: true }).order("created_at", { ascending: false }),
-        supabase.from("notifications").select("id,title,message,notification_type,display_date,sort_order,created_at").order("sort_order", { ascending: true }).order("created_at", { ascending: false })
+        supabase.from("notifications").select("id,title,message,notification_type,notification_severity,display_date,sort_order,created_at,starts_at,expires_at,is_active,is_published,dismissible,button_label,button_url").eq("is_published", true).eq("is_active", true).order("sort_order", { ascending: true }).order("created_at", { ascending: false })
       ]);
       if (!active) return;
       const error = services.error || events.error || notifications.error;
@@ -113,6 +145,28 @@ function App() {
     }
     loadPublicContent();
     return () => { active = false; };
+  }, []);
+
+  async function loadPublicProfile() {
+    setProfileLoading(true);
+    setProfileError("");
+    try {
+      const response = await fetch(apiUrl("/api/profile"), { cache: "no-store" });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error || "Approved company profile files could not be loaded.");
+      setProfileDocuments(Array.isArray(result.documents) ? result.documents : []);
+    } catch (error) {
+      setProfileError(error.message);
+    } finally {
+      setProfileLoading(false);
+    }
+  }
+
+  useEffect(() => { loadPublicProfile(); }, []);
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNotificationNow(Date.now()), 30000);
+    return () => window.clearInterval(timer);
   }, []);
 
   useEffect(() => {
@@ -137,17 +191,20 @@ function App() {
   useEffect(() => {
     if (!adminMode) return;
     if (adminTab === "overview") loadDashboardMetrics();
-    else loadAdminItems(adminTab);
+    else if (adminTab === "advances") {
+      Promise.all([loadAdminItems("guards"), loadAdminItems("supervisors"), loadAdminItems("fieldOfficers"), loadAdminItems("sites")]);
+    } else loadAdminItems(adminTab);
   }, [adminMode, adminTab]);
 
   async function loadDashboardMetrics() {
     if (!supabase) return;
     setAdminLoading(true);
     setAdminMessage("");
-    const keys = ["guards", "sites", "services", "events", "notifications", "complaints", "contact_submissions", "job_applications", "profile_docs"];
+    const keys = ["guards", "sites", "supervisors", "field_officers", "advances", "services", "events", "notifications", "complaints", "contact_submissions", "job_applications", "profile_docs"];
     const results = await Promise.all(keys.map(table => supabase.from(table).select("id", { count: "exact", head: true })));
     const failed = results.find(result => result.error);
     if (failed) {
+      setDashboardMetrics(null);
       setAdminMessage(`Dashboard counts could not load: ${failed.error.message}`);
     } else {
       setDashboardMetrics(Object.fromEntries(keys.map((key, index) => [key, results[index].count ?? 0])));
@@ -162,27 +219,64 @@ function App() {
     const tableName = ({ profileDocs: "profile_docs", contactSubmissions: "contact_submissions", jobApplications: "job_applications" })[tabKey] || tabKey;
     let result;
     if (tabKey === "sites") {
-      const [sites, guards] = await Promise.all([
-        supabase.from("sites").select("*").order("created_at", { ascending: false }),
-        supabase.from("guards").select("id,full_name,status,site_id").order("full_name")
+      const [sites, guards, supervisors, fieldOfficers, guardAssignments, supervisorAssignments, fieldOfficerAssignments] = await Promise.all([
+        fetchAllSupabaseRows("sites"),
+        fetchAllSupabaseRows("guards", "id,full_name,employee_code,status,site_id"),
+        fetchAllSupabaseRows("supervisors", "id,full_name,employee_code,status"),
+        fetchAllSupabaseRows("field_officers", "id,full_name,employee_code,status"),
+        fetchAllSupabaseRows("guard_site_assignments", "id,guard_id,site_id,valid_from,valid_to"),
+        fetchAllSupabaseRows("supervisor_site_assignments", "id,supervisor_id,site_id,valid_from,valid_to"),
+        fetchAllSupabaseRows("field_officer_site_assignments", "id,field_officer_id,site_id,valid_from,valid_to")
       ]);
-      result = sites.error ? sites : guards.error ? guards : { data: sites.data.map(site => ({
+      const failed = [sites, guards, supervisors, fieldOfficers, guardAssignments, supervisorAssignments, fieldOfficerAssignments].find(item => item.error);
+      result = failed ? failed : { data: sites.data.map(site => ({
         ...site,
-        guard_records: guards.data.filter(guard => guard.site_id === site.id)
+        guard_records: guardAssignments.data.filter(row => row.site_id === site.id && !row.valid_to).map(row => guards.data.find(person => person.id === row.guard_id)).filter(Boolean),
+        supervisor_records: supervisorAssignments.data.filter(row => row.site_id === site.id && !row.valid_to).map(row => supervisors.data.find(person => person.id === row.supervisor_id)).filter(Boolean),
+        field_officer_records: fieldOfficerAssignments.data.filter(row => row.site_id === site.id && !row.valid_to).map(row => fieldOfficers.data.find(person => person.id === row.field_officer_id)).filter(Boolean)
       })) };
-      if (!guards.error) setAdminItems(previous => ({ ...previous, guards: guards.data }));
+      if (!failed) {
+        const activeGuardRows = guards.data.map(person => ({ ...person,
+          site_records: guardAssignments.data.filter(row => row.guard_id === person.id && !row.valid_to).map(row => sites.data.find(site => site.id === row.site_id)).filter(Boolean),
+        }));
+        const activeSupervisorRows = supervisors.data.map(person => ({ ...person,
+          site_records: supervisorAssignments.data.filter(row => row.supervisor_id === person.id && !row.valid_to).map(row => sites.data.find(site => site.id === row.site_id)).filter(Boolean),
+        }));
+        const activeOfficerRows = fieldOfficers.data.map(person => ({ ...person,
+          site_records: fieldOfficerAssignments.data.filter(row => row.field_officer_id === person.id && !row.valid_to).map(row => sites.data.find(site => site.id === row.site_id)).filter(Boolean),
+        }));
+        setAdminItems(previous => ({ ...previous, guards: activeGuardRows, supervisors: activeSupervisorRows, fieldOfficers: activeOfficerRows }));
+      }
     } else if (tabKey === "guards") {
-      const [guards, sites] = await Promise.all([
-        supabase.from("guards").select("*").order("created_at", { ascending: false }),
-        supabase.from("sites").select("id,title").order("title")
+      const [guards, sites, assignments] = await Promise.all([
+        fetchAllSupabaseRows("guards"),
+        fetchAllSupabaseRows("sites", "id,title,site_code"),
+        fetchAllSupabaseRows("guard_site_assignments", "id,guard_id,site_id,valid_from,valid_to")
       ]);
-      result = guards.error ? guards : sites.error ? sites : { data: guards.data.map(guard => ({
+      const failed = [guards, sites, assignments].find(item => item.error);
+      result = failed ? failed : { data: guards.data.map(guard => ({
         ...guard,
-        site_title: sites.data.find(site => site.id === guard.site_id)?.title || "Unassigned"
+        site_records: assignments.data.filter(row => row.guard_id === guard.id && !row.valid_to).map(row => sites.data.find(site => site.id === row.site_id)).filter(Boolean),
+        site_title: assignments.data.filter(row => row.guard_id === guard.id && !row.valid_to).map(row => sites.data.find(site => site.id === row.site_id)?.title).filter(Boolean).join(", ") || "Unassigned"
+      })) };
+      if (!sites.error) setAdminItems(previous => ({ ...previous, sites: sites.data }));
+    } else if (tabKey === "supervisors" || tabKey === "fieldOfficers") {
+      const isSupervisor = tabKey === "supervisors";
+      const table = isSupervisor ? "supervisors" : "field_officers";
+      const assignmentTable = isSupervisor ? "supervisor_site_assignments" : "field_officer_site_assignments";
+      const relationKey = isSupervisor ? "supervisor_id" : "field_officer_id";
+      const [people, sites, assignments] = await Promise.all([
+        fetchAllSupabaseRows(table), fetchAllSupabaseRows("sites", "id,title,site_code"),
+        fetchAllSupabaseRows(assignmentTable, `id,${relationKey},site_id,valid_from,valid_to`)
+      ]);
+      const failed = [people, sites, assignments].find(item => item.error);
+      result = failed ? failed : { data: people.data.map(person => ({
+        ...person,
+        site_records: assignments.data.filter(row => row[relationKey] === person.id && !row.valid_to).map(row => sites.data.find(site => site.id === row.site_id)).filter(Boolean)
       })) };
       if (!sites.error) setAdminItems(previous => ({ ...previous, sites: sites.data }));
     } else {
-      result = await supabase.from(tableName).select("*").order("created_at", { ascending: false });
+      result = await fetchAllSupabaseRows(tableName);
     }
     const { data, error } = result;
     if (error) {
@@ -197,6 +291,7 @@ function App() {
     setEditingId(null);
     setItemForm({
       title: "", description: "", event_date: "", image_url: "", message: "", tag: "", icon_key: "shield-check", sort_order: "0", event_type: "COMMUNITY", display_status: "", notification_type: "COMPANY UPDATE", display_date: "",
+      notification_severity: "announcement", starts_at: "", expires_at: "", is_active: true, is_published: false, dismissible: true, button_label: "", button_url: "",
       phone_numbers: "", total_salary: "", service_taken: "SECURITY GUARD", given_emails: "", supervisor_name: "", field_officer_name: "",
       full_name: "", phone: "", email: "", designation: "Security Guard", status: "active", joining_date: "", site_id: "",
       file_title: "", file_description: "", file_url: ""
@@ -218,6 +313,14 @@ function App() {
       display_status: item.display_status || "",
       notification_type: item.notification_type || "COMPANY UPDATE",
       display_date: item.display_date || "",
+      notification_severity: item.notification_severity || "announcement",
+      starts_at: toDateTimeLocalValue(item.starts_at),
+      expires_at: toDateTimeLocalValue(item.expires_at),
+      is_active: item.is_active !== false,
+      is_published: item.is_published === true,
+      dismissible: item.dismissible !== false,
+      button_label: item.button_label || "",
+      button_url: item.button_url || "",
       phone_numbers: item.phone_numbers || "",
       total_salary: item.total_salary || "",
       service_taken: item.service_taken || "SECURITY GUARD",
@@ -248,7 +351,29 @@ function App() {
     if (adminTab === "events") {
       payload = { title: itemForm.title.trim(), description: itemForm.description.trim(), event_date: toUtcDateTimestamp(itemForm.event_date), image_url: itemForm.image_url.trim() || null, event_type: itemForm.event_type.trim(), display_status: itemForm.display_status.trim(), sort_order: Number(itemForm.sort_order) || 0 };
     } else if (adminTab === "notifications") {
-      payload = { title: itemForm.title.trim(), message: itemForm.message.trim(), notification_type: itemForm.notification_type.trim(), display_date: itemForm.display_date.trim(), sort_order: Number(itemForm.sort_order) || 0 };
+      const startsAt = toUtcDateTime(itemForm.starts_at);
+      const expiresAt = toUtcDateTime(itemForm.expires_at);
+      const buttonUrl = safeNotificationHref(itemForm.button_url);
+      if ((itemForm.starts_at && !startsAt) || (itemForm.expires_at && !expiresAt)) {
+        setAdminMessage("Notification start and expiry must be valid dates.");
+        return;
+      }
+      if (startsAt && expiresAt && Date.parse(expiresAt) <= Date.parse(startsAt)) {
+        setAdminMessage("Notification expiry must be later than its start time.");
+        return;
+      }
+      if ((itemForm.button_label.trim() || itemForm.button_url.trim()) && (!itemForm.button_label.trim() || !buttonUrl)) {
+        setAdminMessage("Add both a button label and a safe HTTPS or same-site destination URL.");
+        return;
+      }
+      payload = {
+        title: itemForm.title.trim(), message: itemForm.message.trim(),
+        notification_type: itemForm.notification_type.trim(), display_date: itemForm.display_date.trim(),
+        notification_severity: itemForm.notification_severity, starts_at: startsAt, expires_at: expiresAt,
+        is_active: itemForm.is_active, is_published: itemForm.is_published, dismissible: itemForm.dismissible,
+        button_label: itemForm.button_label.trim() || null, button_url: buttonUrl || null,
+        sort_order: Number(itemForm.sort_order) || 0,
+      };
     } else if (adminTab === "services") {
       payload = { title: itemForm.title.trim(), description: itemForm.description.trim(), image_url: itemForm.image_url.trim() || null, tag: itemForm.tag.trim(), icon_key: itemForm.icon_key, sort_order: Number(itemForm.sort_order) || 0 };
     } else if (adminTab === "sites") {
@@ -261,14 +386,6 @@ function App() {
         supervisor_name: itemForm.supervisor_name.trim(),
         field_officer_name: itemForm.field_officer_name.trim(),
         updated_at: new Date().toISOString()
-      };
-    } else if (adminTab === "guards") {
-      payload = { full_name: itemForm.full_name.trim(), phone: itemForm.phone.trim(), email: itemForm.email.trim() || null, designation: itemForm.designation.trim(), status: itemForm.status, joining_date: itemForm.joining_date || null, site_id: itemForm.site_id ? Number(itemForm.site_id) : null, updated_at: new Date().toISOString() };
-    } else if (adminTab === "profileDocs") {
-      payload = {
-        title: itemForm.file_title.trim(),
-        description: itemForm.file_description.trim(),
-        file_url: itemForm.file_url.trim()
       };
     }
 
@@ -315,29 +432,6 @@ function App() {
     }
   }
 
-  async function handleSendMessageAction(item) {
-    const msgTitle = prompt("Enter Message Title:", "Golconda Security Alert");
-    if (!msgTitle) return;
-    const msgBody = prompt("Enter Message Content:", "Important operational update from GSS command.");
-    if (!msgBody) return;
-
-    try {
-      const { data } = await supabase.auth.getSession();
-      const token = data?.session?.access_token;
-      if (!token) throw new Error("Your admin session has expired. Sign in again.");
-      const res = await fetch(apiUrl("/api/send-message"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ title: msgTitle, message: msgBody, recipients: item?.given_emails || item?.email || undefined })
-      });
-      const result = await res.json();
-      if (!res.ok) throw new Error(result.error || "Message could not be sent.");
-      alert(result.message || "Message sent.");
-    } catch (error) {
-      alert(`Message not sent: ${error.message}`);
-    }
-  }
-
   async function handleAdminLogout() {
     await supabase?.auth.signOut();
     setAdminMode(false);
@@ -349,7 +443,7 @@ function App() {
 
   const navItems = [
     ["Home", "#home"], ["Services", "#services"], ["Notifications", "#notifications"],
-    ["Upcoming Events", "#events"], ["Profile", "#profile"], ["Complaints", "#complaints"], ["Work With Us", "#careers"], ["Contact Us", "#contact"]
+    ["Upcoming Events", "#events"], ["FAQ", "#faq"], ["Profile", "#profile"], ["Complaints", "#complaints"], ["Work With Us", "#careers"], ["Contact Us", "#contact"]
   ];
 
   async function submitForm(event, endpoint, payload, reset, successText) {
@@ -359,8 +453,8 @@ function App() {
       const response = await fetch(apiUrl(`/api/${endpoint}`), {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
       });
-      const result = await response.json();
-      if (!response.ok) throw new Error(result.error || "Submission failed.");
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok || result.ok !== true || !result.id) throw new Error(result.error || "The submission could not be confirmed as saved. Please retry or contact the company.");
       setNotice(result.message || successText);
       reset();
     } catch (error) {
@@ -410,11 +504,12 @@ function App() {
       setLoginOpen(false);
       setLogin({ userId: "", password: "" });
       setLoginMessage("");
-    } catch (error) {
+    } catch {
       setLoginMessage("Login could not be completed. Please try again.");
-      console.error("Admin login error:", error);
     }
   }
+
+  const activePublicNotifications = prioritizeNotifications(publicContent.notifications, notificationNow);
 
   if (adminMode) {
     const currentItems = adminItems[adminTab] || [];
@@ -474,7 +569,6 @@ function App() {
         .gss-admin-search{max-width:360px;width:100%;border:1px solid #d8dee8;border-radius:8px;padding:10px 12px;font:inherit}
         .gss-admin-item-actions button{background:#fff;border:1px solid #dce2eb;border-radius:7px;padding:8px 10px;font-size:12px;cursor:pointer;display:flex;align-items:center;gap:6px}
         .gss-admin-item-actions button.danger{color:#b42318;border-color:#fecdca}
-        .gss-admin-item-actions button.msg-btn{color:#026aa2;border-color:#b9e6fe;background:#f0f9ff}
         .gss-admin-empty{color:#667085;background:#fafbfd;padding:28px;border-radius:8px;text-align:center;font-size:13px}
         .gss-overview-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:20px;margin-top:20px}
         .gss-overview-card{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:24px;box-shadow:0 4px 12px rgba(0,0,0,0.03)}
@@ -509,6 +603,9 @@ function App() {
           <button className={adminTab === "overview" ? "active" : ""} onClick={() => setAdminTab("overview")}><ShieldCheck/><span><small>Overview</small><strong>Dashboard</strong><b>Live database counts</b></span></button>
           <button className={adminTab === "sites" ? "active" : ""} onClick={() => { setAdminTab("sites"); resetItemForm(); }}><Building2/><span><small>Management</small><strong>Sites</strong><b>{totalSitesCount} Records</b></span></button>
           <button className={adminTab === "guards" ? "active" : ""} onClick={() => { setAdminTab("guards"); resetItemForm(); }}><Users/><span><small>Management</small><strong>Guards</strong><b>{totalGuardsCount} Records</b></span></button>
+          <button className={adminTab === "supervisors" ? "active" : ""} onClick={() => { setAdminTab("supervisors"); resetItemForm(); }}><UserRound/><span><small>Management</small><strong>Supervisors</strong><b>{metric("supervisors")} Records</b></span></button>
+          <button className={adminTab === "fieldOfficers" ? "active" : ""} onClick={() => { setAdminTab("fieldOfficers"); resetItemForm(); }}><UserRound/><span><small>Management</small><strong>Field Officers</strong><b>{metric("field_officers")} Records</b></span></button>
+          <button className={adminTab === "advances" ? "active" : ""} onClick={() => { setAdminTab("advances"); resetItemForm(); }}><FileText/><span><small>Payroll</small><strong>Advances</strong><b>{metric("advances")} Records</b></span></button>
           <button className={adminTab === "profileDocs" ? "active" : ""} onClick={() => { setAdminTab("profileDocs"); resetItemForm(); }}><FileText/><span><small>Company Vault</small><strong>Profile Docs</strong><b>{metric("profile_docs")} Files</b></span></button>
           <button className={adminTab === "complaints" ? "active" : ""} onClick={() => { setAdminTab("complaints"); resetItemForm(); }}><AlertCircle/><span><small>Client & Staff</small><strong>Complaints</strong><b>{metric("complaints")} Logged</b></span></button>
           <button className={adminTab === "events" ? "active" : ""} onClick={() => { setAdminTab("events"); resetItemForm(); }}><CalendarDays/><span><small>Schedule</small><strong>Events</strong><b>{metric("events")} Items</b></span></button>
@@ -534,6 +631,10 @@ function App() {
                 {[["guards", "Guards"], ["sites", "Sites"], ["services", "Services"], ["events", "Events"], ["notifications", "Notifications"], ["complaints", "Complaints"], ["contact_submissions", "Contact enquiries"], ["job_applications", "Applications"]].map(([key, label]) => <div key={key} style={{background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "12px", padding: "20px"}}><small style={{color: "#64748b", fontWeight: "700", textTransform: "uppercase"}}>{label}</small><strong style={{fontSize: "28px", color: "#1e293b", margin: "8px 0", display: "block"}}>{metric(key)}</strong><span style={{fontSize: "12px", color: "#0d9488"}}>Current database total</span></div>)}
               </div>}
 
+              <div className="gss-admin-stats" style={{marginBottom: "30px"}}>
+                {[["supervisors", "Supervisors"], ["field_officers", "Field officers"], ["advances", "Advances"]].map(([key, label]) => <div key={key} style={{background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "12px", padding: "20px"}}><small style={{color: "#64748b", fontWeight: "700", textTransform: "uppercase"}}>{label}</small><strong style={{fontSize: "28px", color: "#1e293b", margin: "8px 0", display: "block"}}>{metric(key)}</strong><span style={{fontSize: "12px", color: "#0d9488"}}>Current database total</span></div>)}
+              </div>
+
               <div className="gss-overview-grid">
                 <div className="gss-overview-card">
                   <h3>🏢 Sites & Hierarchy</h3>
@@ -546,15 +647,15 @@ function App() {
                   <button className="gss-admin-secondary" onClick={() => setAdminTab("profileDocs")}><FileText size={15}/> Open Vault</button>
                 </div>
                 <div className="gss-overview-card">
-                  <h3>✉️ Broadcast & Dispatch</h3>
-                  <p>Send direct messages, notifications, or emails instantly regarding operational shifts or safety updates.</p>
+                  <h3>📣 Published Updates</h3>
+                  <p>Manage announcements and safety updates shown on the public website.</p>
                   <button className="gss-admin-secondary" onClick={() => setAdminTab("notifications")}><Bell size={15}/> Notifications</button>
                 </div>
               </div>
             </div>
           )}
 
-          {adminTab !== "overview" && !["complaints", "contactSubmissions", "jobApplications"].includes(adminTab) && (
+          {adminTab !== "overview" && !["complaints", "contactSubmissions", "jobApplications", "guards", "profileDocs", "sites", "supervisors", "fieldOfficers", "advances"].includes(adminTab) && (
             <form className="gss-admin-form" onSubmit={saveAdminItem}>
               <h3>{editingId ? "Edit Item" : `Add New ${adminTab === "sites" ? "Site" : adminTab === "guards" ? "Guard" : adminTab === "profileDocs" ? "Profile Document" : adminTab === "notifications" ? "Notification" : adminTab === "events" ? "Event" : "Service"}`}</h3>
               
@@ -568,7 +669,18 @@ function App() {
                   )}
                   {adminTab === "events" && <label>Event Date<input type="date" value={itemForm.event_date} onChange={e => setItemForm({ ...itemForm, event_date: e.target.value })}/></label>}
                   {adminTab === "events" && <><label>Event Type<input value={itemForm.event_type} onChange={e => setItemForm({ ...itemForm, event_type: e.target.value })}/></label><label>Display Status<input value={itemForm.display_status} onChange={e => setItemForm({ ...itemForm, display_status: e.target.value })} placeholder="Registration details / status"/></label></>}
-                  {adminTab === "notifications" && <><label>Notification Type<input value={itemForm.notification_type} onChange={e => setItemForm({ ...itemForm, notification_type: e.target.value })}/></label><label>Date Label<input value={itemForm.display_date} onChange={e => setItemForm({ ...itemForm, display_date: e.target.value })} placeholder="Latest update"/></label></>}
+                  {adminTab === "notifications" && <>
+                    <label>Notification Type<input maxLength="60" value={itemForm.notification_type} onChange={e => setItemForm({ ...itemForm, notification_type: e.target.value })} placeholder="Company update / Safety reminder"/></label>
+                    <label>Severity<select value={itemForm.notification_severity} onChange={e => setItemForm({ ...itemForm, notification_severity: e.target.value })}><option value="information">Information</option><option value="announcement">Announcement</option><option value="warning">Warning</option><option value="urgent">Urgent</option></select></label>
+                    <label>Date Label<input maxLength="60" value={itemForm.display_date} onChange={e => setItemForm({ ...itemForm, display_date: e.target.value })} placeholder="Latest update"/></label>
+                    <label>Start Date & Time<input type="datetime-local" value={itemForm.starts_at} onChange={e => setItemForm({ ...itemForm, starts_at: e.target.value })}/></label>
+                    <label>Expiry Date & Time<input type="datetime-local" value={itemForm.expires_at} onChange={e => setItemForm({ ...itemForm, expires_at: e.target.value })}/></label>
+                    <label>Button Label (optional)<input maxLength="60" value={itemForm.button_label} onChange={e => setItemForm({ ...itemForm, button_label: e.target.value })} placeholder="Learn more"/></label>
+                    <label>Button URL (optional)<input type="text" maxLength="500" value={itemForm.button_url} onChange={e => setItemForm({ ...itemForm, button_url: e.target.value })} placeholder="https://… or /contact"/></label>
+                    <label className="gss-admin-checkbox"><input type="checkbox" checked={itemForm.is_active} onChange={e => setItemForm({ ...itemForm, is_active: e.target.checked })}/> Active</label>
+                    <label className="gss-admin-checkbox"><input type="checkbox" checked={itemForm.is_published} onChange={e => setItemForm({ ...itemForm, is_published: e.target.checked })}/> Published on the public website</label>
+                    <label className="gss-admin-checkbox"><input type="checkbox" checked={itemForm.dismissible} onChange={e => setItemForm({ ...itemForm, dismissible: e.target.checked })}/> Visitors can dismiss this banner</label>
+                  </>}
                   {adminTab === "services" && <><label>Card Tag<input value={itemForm.tag} onChange={e => setItemForm({ ...itemForm, tag: e.target.value })} placeholder="PHYSICAL SECURITY"/></label><label>Card Icon<select value={itemForm.icon_key} onChange={e => setItemForm({ ...itemForm, icon_key: e.target.value })}><option value="shield-check">Shield check</option><option value="shield">Shield</option><option value="globe">Globe</option><option value="code">Code</option><option value="graduation-cap">Graduation cap</option></select></label></>}
                   <label>Display Order<input type="number" min="0" value={itemForm.sort_order} onChange={e => setItemForm({ ...itemForm, sort_order: e.target.value })}/></label>
                   {adminTab !== "notifications" && <label>Image URL (Optional)<input type="url" value={itemForm.image_url} onChange={e => setItemForm({ ...itemForm, image_url: e.target.value })} placeholder="https://..."/></label>}
@@ -587,31 +699,8 @@ function App() {
                 </>
               )}
 
-              {adminTab === "guards" && <>
-                <label className="full">Full Name<input required maxLength="120" value={itemForm.full_name} onChange={e => setItemForm({ ...itemForm, full_name: e.target.value })}/></label>
-                <label>Phone<input required maxLength="24" value={itemForm.phone} onChange={e => setItemForm({ ...itemForm, phone: e.target.value })}/></label>
-                <label>Email (optional)<input type="email" value={itemForm.email} onChange={e => setItemForm({ ...itemForm, email: e.target.value })}/></label>
-                <label>Designation<input value={itemForm.designation} onChange={e => setItemForm({ ...itemForm, designation: e.target.value })}/></label>
-                <label>Status<select value={itemForm.status} onChange={e => setItemForm({ ...itemForm, status: e.target.value })}><option value="active">Active</option><option value="inactive">Inactive</option><option value="on_leave">On leave</option></select></label>
-                <label>Joining Date<input type="date" value={itemForm.joining_date} onChange={e => setItemForm({ ...itemForm, joining_date: e.target.value })}/></label>
-                <label>Assigned Site<select value={itemForm.site_id} onChange={e => setItemForm({ ...itemForm, site_id: e.target.value })}><option value="">Unassigned</option>{adminItems.sites.map(site => <option key={site.id} value={site.id}>{site.title}</option>)}</select></label>
-              </>}
-
-              {adminTab === "profileDocs" && (
-                <div className="drag-drop-box">
-                  <FileText size={32} style={{color: "#caa65b", margin: "0 auto 10px"}} />
-                  <strong>Company profile document URL</strong>
-                  <p style={{margin: "5px 0 10px", fontSize: "12px", color: "#64748b"}}>Documents remain hosted at the existing URL until a Supabase Storage bucket is configured.</p>
-                  <label className="full">File URL<input required type="url" value={itemForm.file_url} onChange={e => setItemForm({...itemForm, file_url: e.target.value})} placeholder="https://..." /></label>
-                  <div style={{display: "grid", gridTemplateColumns: "1fr 1fr", gap: "10px", marginTop: "15px", textAlign: "left"}}>
-                    <label>Document Title<input required value={itemForm.file_title} onChange={e => setItemForm({...itemForm, file_title: e.target.value})} placeholder="Company Profile 2026"/></label>
-                    <label>Description<input value={itemForm.file_description} onChange={e => setItemForm({...itemForm, file_description: e.target.value})} placeholder="Official brochure & credentials"/></label>
-                  </div>
-                </div>
-              )}
-
               <div className="gss-admin-form-actions">
-                <button className="gss-admin-primary" type="submit"><Plus size={16}/>{editingId ? "Save Changes" : "Publish Item"}</button>
+                <button className="gss-admin-primary" type="submit"><Plus size={16}/>{adminTab === "notifications" ? "Save Notification" : editingId ? "Save Changes" : "Publish Item"}</button>
                 {editingId && <button type="button" className="gss-admin-secondary" onClick={resetItemForm}>Cancel Edit</button>}
               </div>
             </form>
@@ -619,6 +708,52 @@ function App() {
 
           {adminMessage && <p className="gss-admin-message" role="status">{adminMessage}</p>}
 
+          {adminTab === "guards" && <GuardManagement
+            items={adminItems.guards}
+            sites={adminItems.sites}
+            search={adminSearch}
+            onSearchChange={setAdminSearch}
+            onRefresh={() => loadAdminItems("guards")}
+            onMetricsRefresh={loadDashboardMetrics}
+          />}
+          {adminTab === "sites" && <SiteManagement
+            items={adminItems.sites}
+            guards={adminItems.guards}
+            supervisors={adminItems.supervisors}
+            fieldOfficers={adminItems.fieldOfficers}
+            onRefresh={() => loadAdminItems("sites")}
+            onMetricsRefresh={loadDashboardMetrics}
+          />}
+          {adminTab === "supervisors" && <PeopleManagement
+            employeeType="supervisor"
+            items={adminItems.supervisors}
+            sites={adminItems.sites}
+            guards={adminItems.guards}
+            onRefresh={() => loadAdminItems("supervisors")}
+            onMetricsRefresh={loadDashboardMetrics}
+          />}
+          {adminTab === "fieldOfficers" && <PeopleManagement
+            employeeType="field_officer"
+            items={adminItems.fieldOfficers}
+            sites={adminItems.sites}
+            guards={adminItems.guards}
+            onRefresh={() => loadAdminItems("fieldOfficers")}
+            onMetricsRefresh={loadDashboardMetrics}
+          />}
+          {adminTab === "advances" && <AdvancesManagement
+            guards={adminItems.guards}
+            supervisors={adminItems.supervisors}
+            fieldOfficers={adminItems.fieldOfficers}
+            sites={adminItems.sites}
+            onMetricsRefresh={loadDashboardMetrics}
+          />}
+          {adminTab === "profileDocs" && <ProfileVault
+            items={adminItems.profileDocs}
+            onRefresh={() => loadAdminItems("profileDocs")}
+            onMetricsRefresh={loadDashboardMetrics}
+          />}
+
+          {! ["guards", "profileDocs", "sites", "supervisors", "fieldOfficers", "advances"].includes(adminTab) && <>
           <div className="gss-admin-list-heading">
             <h3>{adminTab === "overview" ? "Quick Operational Actions" : "Records & Entries"}</h3>
             {adminTab !== "overview" && <input className="gss-admin-search" type="search" value={adminSearch} onChange={e => setAdminSearch(e.target.value)} placeholder="Search records" aria-label="Search records"/>}
@@ -644,7 +779,8 @@ function App() {
                       <div className="site-details"><span><b>Email:</b> {item.email}</span><span><b>Service:</b> {item.service || "General enquiry"}</span><span><b>Status:</b> {item.status}</span><span><b>Submitted:</b> {new Date(item.created_at).toLocaleString()}</span></div><p>{item.message}</p>
                     </> : adminTab === "jobApplications" ? <>
                       <div className="site-details"><span><b>Email:</b> {item.email}</span><span><b>Role:</b> {item.role}</span><span><b>Status:</b> {item.status}</span><span><b>Submitted:</b> {new Date(item.created_at).toLocaleString()}</span></div><p>{item.message || "No introduction provided."}</p>
-                    </> : <p>{adminTab === "notifications" ? item.message : item.description || item.file_description}</p>}
+                    </> : <p>{adminTab === "notifications" ? item.message : item.description}</p>}
+                    {adminTab === "notifications" && <div className="site-details"><span><b>Severity:</b> {item.notification_severity}</span><span><b>Active:</b> {item.is_active ? "Yes" : "No"}</span><span><b>Published:</b> {item.is_published ? "Yes" : "No"}</span><span><b>Start:</b> {item.starts_at ? new Date(item.starts_at).toLocaleString() : "Immediately"}</span><span><b>Expiry:</b> {item.expires_at ? new Date(item.expires_at).toLocaleString() : "No expiry"}</span></div>}
                     
                     {adminTab === "sites" && (
                       <div className="site-details">
@@ -658,20 +794,11 @@ function App() {
                       </div>
                     )}
 
-                    {adminTab === "guards" && <div className="site-details"><span><b>Phone:</b> {item.phone}</span><span><b>Email:</b> {item.email || "—"}</span><span><b>Designation:</b> {item.designation}</span><span><b>Status:</b> {item.status}</span><span><b>Site:</b> {item.site_title}</span><span><b>Joined:</b> {item.joining_date || "—"}</span></div>}
-
-                    {adminTab === "profileDocs" && item.file_url && (
-                      <a href={item.file_url} target="_blank" rel="noreferrer" className="text-link" style={{display: "inline-flex", alignItems: "center", gap: "6px", marginTop: "6px"}}>
-                        <FileText size={14}/> View Document / File <ArrowUpRight size={13}/>
-                      </a>
-                    )}
+                    {adminTab === "notifications" && item.button_label && safeNotificationHref(item.button_url) && <a href={safeNotificationHref(item.button_url)} target={item.button_url?.startsWith("https://") ? "_blank" : undefined} rel="noopener noreferrer" className="text-link" style={{marginTop: 5}}>{item.button_label}<ArrowUpRight size={13}/></a>}
 
                     <small>{item.created_at ? `Added: ${new Date(item.created_at).toLocaleDateString()}` : ""}</small>
                   </div>
                   <div className="gss-admin-item-actions">
-                    <button type="button" className="msg-btn" onClick={() => handleSendMessageAction(item)} title="Send Message / Email">
-                      <Send size={15}/> Send Msg
-                    </button>
                     {adminTab === "complaints" && <button type="button" onClick={() => toggleComplaintStatus(item)}>{item.status === "resolved" ? "Reopen" : "Mark Resolved"}</button>}
                     {!['complaints', 'contactSubmissions', 'jobApplications'].includes(adminTab) && (
                       <button type="button" onClick={() => startEditing(item, adminTab)} aria-label="Edit item">
@@ -686,10 +813,11 @@ function App() {
               ))}
             </div>
           )}
+          </>}
         </section>
 
         <p className="gss-admin-security-note">
-          <LockKeyhole size={15}/> Submissions are stored for authorized admin review. Email alerts are sent when the email provider is configured.
+          <LockKeyhole size={15}/> Submissions are stored in Supabase for authorized admin review.
         </p>
       </main>
     </div>;
@@ -720,12 +848,12 @@ function App() {
             <span className="eyebrow"><span className="gold-line"/> GOLCONDA SECURITY & FACILITY SERVICES</span>
             <h1>Protect what<br/> <em>matters most.</em></h1>
             <p className="hero-lead">Integrated physical security, guard deployment, and digital protection for resilient enterprises.</p>
-            <p className="hero-desc">Reg. No. 493-2013 (AP Gov.) · Professional security personnel, ASO services, web security, and cyber awareness led by experienced professionals.</p>
+            <p className="hero-desc">Reg. No. 493-2013 (AP Gov.) · Security personnel, ASO services, web security, and cyber awareness. Contact the team to confirm current service availability and coverage.</p>
             <div className="hero-actions">
               <a className="button button-gold" href="#services">Explore Services <ArrowRight size={17}/></a>
               <a className="button button-outline" href="#contact">Connect With Us <ArrowUpRight size={17}/></a>
             </div>
-            <div className="hero-proof"><span><ShieldCheck size={16}/> Physical & Digital</span><span><CheckCircle2 size={16}/> 24/7 Supervision</span><span><LockKeyhole size={16}/> ISO Standard</span></div>
+            <div className="hero-proof"><span><ShieldCheck size={16}/> Physical Security</span><span><CheckCircle2 size={16}/> Cyber Awareness</span><span><MapPin size={16}/> Secunderabad</span></div>
           </div>
           <div className="hero-art" aria-label="Shield illustration">
             <div className="orbit orbit-one"/><div className="orbit orbit-two"/>
@@ -737,6 +865,8 @@ function App() {
         </div>
         <div className="hero-bottom-line"/>
       </section>
+
+      <AnnouncementBanner notifications={publicContent.notifications} now={notificationNow}/>
 
       <section className="trust-strip"><div className="container trust-inner"><span>OUR FOCUS</span>{publicContent.services.slice(0, 4).map((service, index) => <React.Fragment key={service.id}>{index > 0 && <i/>}<b>{service.title}</b></React.Fragment>)}</div></section>
 
@@ -760,7 +890,10 @@ function App() {
         <div className="container">
           <div className="section-row"><SectionHeading eyebrow="THE LATEST" title="Notifications & updates" subtitle="Company news, service announcements and safety reminders." align="left"/><span className="live-label"><span className="status-dot"/> LIVE UPDATES</span></div>
           <div className="updates-grid">
-            {publicContentLoading ? <p role="status">Loading updates…</p> : publicContentError ? <p role="alert">{publicContentError}</p> : publicContent.notifications.length ? publicContent.notifications.map(item => <article className="update-card" key={item.id}><div className="update-meta"><span>{item.notification_type || "COMPANY UPDATE"}</span><span>{item.display_date || (item.created_at ? new Date(item.created_at).toLocaleDateString() : "Latest update")}</span></div><h3>{item.title}</h3><p>{item.message}</p><a href="#contact" className="text-link">Stay connected <ArrowRight size={15}/></a></article>) : <p>No updates are currently published.</p>}
+            {publicContentLoading ? <p role="status">Loading updates…</p> : publicContentError ? <p role="alert">{publicContentError}</p> : activePublicNotifications.length ? <>{activePublicNotifications.slice(0, showAllPublicNotifications ? undefined : 6).map(item => {
+              const actionHref = safeNotificationHref(item.button_url) || "#contact";
+              return <article className={`update-card severity-${item.notification_severity || "information"}`} key={item.id}><div className="update-meta"><span>{item.notification_type || item.notification_severity || "COMPANY UPDATE"}</span><span>{item.display_date || (item.created_at ? new Date(item.created_at).toLocaleDateString() : "Latest update")}</span></div><h3>{item.title}</h3><p>{item.message}</p><a href={actionHref} target={actionHref.startsWith("https://") ? "_blank" : undefined} rel="noopener noreferrer" className="text-link">{item.button_label || "Stay connected"} <ArrowRight size={15}/></a></article>;
+            })}{activePublicNotifications.length > 6 && <button type="button" className="notification-more-count" onClick={() => setShowAllPublicNotifications(value => !value)}>{showAllPublicNotifications ? "Show fewer updates" : `Show all ${activePublicNotifications.length} published updates`}</button>}</> : <p>No updates are currently published.</p>}
           </div>
         </div>
       </section>
@@ -774,22 +907,21 @@ function App() {
         </div>
       </section>
 
-      <section className="section profile-section" id="profile">
-        <div className="container profile-panel">
-          <div className="profile-main">
-            <span className="eyebrow">THE COMPANY PROFILE</span>
-            <h2>Get to know <em>our work.</em></h2>
-            <p>Access official company documents, compliance certifications, service catalogs, and leadership profiles.</p>
-            <div className="profile-types"><span><FileText size={17}/> Documents</span><span><ImageIcon size={17}/> Photos</span><span><PlayCircle size={17}/> Videos</span></div>
-            <button className="button button-gold" onClick={() => setNotice("Company Profile vault is accessible in the Team Dashboard for authorized personnel.")}>View Company Profile <ArrowRight size={16}/></button>
-          </div>
-          <div className="profile-tiles">
-            <div className="profile-tile tile-large"><FileText size={25}/><b>Company Documents & Policies</b><small>AP Gov Reg · Labour No · ESI & PF</small></div>
-            <div className="profile-tile"><ImageIcon size={23}/><b>Gallery</b><small>Deployment & Milestones</small></div>
-            <div className="profile-tile"><PlayCircle size={23}/><b>Media</b><small>Programs & Training</small></div>
+      <section className="section faq-section" id="faq">
+        <div className="container">
+          <SectionHeading eyebrow="COMMON QUESTIONS" title="Questions before you reach out?" subtitle="Service availability and operating terms are confirmed directly with the company." align="left"/>
+          <div className="faq-list">
+            <details><summary>Which services are currently listed?</summary><p>{publicContent.services.length ? publicContent.services.map(service => service.title).join(", ") : "The live service catalogue is currently unavailable."} The current catalogue is loaded from the company database.</p></details>
+            <details><summary>How do I request a quotation or site discussion?</summary><p>Use the contact form and describe your service requirement, site location and any operational details you want the team to review. The company will confirm availability and terms directly.</p></details>
+            <details><summary>Which locations does the company serve?</summary><p>The company lists its office in Secunderabad, Telangana. Contact the team to confirm whether a particular deployment location is currently served.</p></details>
+            <details><summary>How can I apply for a role?</summary><p>Use the Work With Us form to share your name, email address, area of interest and an optional introduction. Submissions are saved for authorized review.</p></details>
+            <details><summary>How can I submit a complaint?</summary><p>Use the complaint form to include your role, a contact phone number, subject and details. The submission is stored for authorized administrator review. Do not include passwords or unrelated sensitive information.</p></details>
+            <details><summary>Are company documents public?</summary><p>Only profile materials an administrator explicitly approves are shown on the public Company Profile page. Employee records and private drafts are not part of that page.</p></details>
           </div>
         </div>
       </section>
+
+      <CompanyProfile services={publicContent.services} documents={profileDocuments} loading={profileLoading} error={profileError} onRefresh={loadPublicProfile}/>
 
       {/* Complaints Section */}
       <section className="section" id="complaints" style={{background: "#f8fafc", borderTop: "1px solid #e2e8f0", borderBottom: "1px solid #e2e8f0"}}>
@@ -797,15 +929,15 @@ function App() {
           <div>
             <span className="eyebrow">GRIEVANCE & COMPLAINTS</span>
             <h2>Register a <em>Complaint.</em></h2>
-            <p>Guards, supervisors, field officers, or clients can register grievances or operational complaints here. Submissions are saved for authorized review. Email notifications are sent when email delivery is configured.</p>
+            <p>Guards, supervisors, field officers, or clients can register grievances or operational complaints here. Submissions are saved for authorized review in the Admin Dashboard.</p>
             <div className="career-perks">
               <span><Phone size={17}/> Direct Hotline: 9032545115</span>
-              <span><CheckCircle2 size={17}/> Prompt Review & Resolution</span>
+              <span><LockKeyhole size={17}/> Authorized Admin Review</span>
             </div>
           </div>
-          <form className="form-card" onSubmit={(e) => submitForm(e, "complaints", complaintForm, () => setComplaintForm({complainant_name: "", role: "Security Guard", phone: "", subject: "", details: ""}), "Complaint registered successfully.")}>
+          <form className="form-card" onSubmit={(e) => submitForm(e, "complaints", complaintForm, () => setComplaintForm({complainant_name: "", role: "Security Guard", phone: "", subject: "", details: ""}), "Your submission has been received successfully.")}>
             <h3>Submit Complaint</h3>
-            <p className="form-intro">Your details remain strictly confidential.</p>
+            <p className="form-intro">Submissions are stored for authorized administrator review. See the <a href="/privacy.html">Privacy Policy</a>.</p>
             <label>Your Name<input required value={complaintForm.complainant_name} onChange={e=>setComplaintForm({...complaintForm, complainant_name: e.target.value})} placeholder="Full name"/></label>
             <label>Your Role<select value={complaintForm.role} onChange={e=>setComplaintForm({...complaintForm, role: e.target.value})}><option>Security Guard</option><option>Supervisor</option><option>Field Officer</option><option>Client / Facility Manager</option></select></label>
             <label>Phone Number<input required value={complaintForm.phone} onChange={e=>setComplaintForm({...complaintForm, phone: e.target.value})} placeholder="9xxxxxxxxx"/></label>
@@ -818,9 +950,10 @@ function App() {
 
       <section className="section careers-section" id="careers">
         <div className="container careers-grid">
-          <div><span className="eyebrow">WORK WITH US</span><h2>Build a safer future<br/><em>with our team.</em></h2><p>Interested in security guard deployments, ASO roles, or cyber awareness? Share your details.</p><div className="career-perks"><span><Users size={17}/> Career Opportunities</span><span><GraduationCap size={17}/> Training Provided</span></div></div>
-          <form className="form-card" onSubmit={(e) => submitForm(e, "applications", application, () => setApplication({name:"",email:"",role:"Security Guard / ASO",message:""}), "Application submitted successfully.")}>
+          <div><span className="eyebrow">WORK WITH US</span><h2>Build a safer future<br/><em>with our team.</em></h2><p>Interested in security guard deployments, ASO roles, or cyber awareness? Share your details and the team can confirm current openings.</p><div className="career-perks"><span><Users size={17}/> Career Opportunities</span><span><Mail size={17}/> Role enquiries</span></div></div>
+          <form className="form-card" onSubmit={(e) => submitForm(e, "applications", application, () => setApplication({name:"",email:"",role:"Security Guard / ASO",message:""}), "Your submission has been received successfully.")}>
             <h3>Work with us</h3><p className="form-intro">Join Golconda Security Services.</p>
+            <p className="form-intro">Your details are stored for authorized review. See the <a href="/privacy.html">Privacy Policy</a>.</p>
             <label>Full name<input required value={application.name} onChange={e=>setApplication({...application,name:e.target.value})} placeholder="Your full name"/></label>
             <label>Email address<input required type="email" value={application.email} onChange={e=>setApplication({...application,email:e.target.value})} placeholder="you@example.com"/></label>
             <label>Area of interest<select value={application.role} onChange={e=>setApplication({...application,role:e.target.value})}>{publicContent.services.map(service => <option key={service.id}>{service.title}</option>)}<option>Supervisor / Field Officer</option><option>General Interest</option></select></label>
@@ -836,12 +969,9 @@ function App() {
             <div className="contact-method"><span><Mail size={18}/></span><div><small>EMAIL</small><b>golcondasecservices@gmail.com</b></div></div>
             <div className="contact-method"><span><Phone size={18}/></span><div><small>PHONE</small><b>+91-9032545115</b></div></div>
             <div className="contact-method"><span><MapPin size={18}/></span><div><small>LOCATION</small><b>Plot No. 202, Shanti Nagar, Balaji Nagar, Jawahar Nagar, Sainikpuri, Secunderabad - 500087</b></div></div>
-            <div className="social-block"><small>OFFICIAL CHANNELS</small><div className="social-links">
-              <a href="https://www.linkedin.com/" target="_blank" rel="noreferrer" aria-label="LinkedIn"><Linkedin/></a><a href="https://www.instagram.com/" target="_blank" rel="noreferrer" aria-label="Instagram"><Instagram/></a><a href="https://www.youtube.com/" target="_blank" rel="noreferrer" aria-label="YouTube"><Youtube/></a><a href="https://www.facebook.com/" target="_blank" rel="noreferrer" aria-label="Facebook"><Facebook/></a><a href="https://t.me/" target="_blank" rel="noreferrer" aria-label="Telegram"><Send/></a>
-            </div></div>
           </div>
-          <form className="form-card contact-form" onSubmit={(e) => submitForm(e, "contact", contact, () => setContact({name:"",email:"",service:"Security Guard / ASO",message:""}), "Enquiry sent successfully.")}>
-            <h3>Send us a message</h3><p className="form-intro">Directly reaches our team.</p>
+          <form className="form-card contact-form" onSubmit={(e) => submitForm(e, "contact", contact, () => setContact({name:"",email:"",service:"Security Guard / ASO",message:""}), "Your submission has been received successfully.")}>
+            <h3>Send us a message</h3><p className="form-intro">Stored for authorized administrator review. See the <a href="/privacy.html">Privacy Policy</a>.</p>
             <label>Full name *<input required value={contact.name} onChange={e=>setContact({...contact,name:e.target.value})} placeholder="Your name"/></label>
             <label>Email address *<input required type="email" value={contact.email} onChange={e=>setContact({...contact,email:e.target.value})} placeholder="you@example.com"/></label>
             <label>I'm interested in<select value={contact.service} onChange={e=>setContact({...contact,service:e.target.value})}>
@@ -860,15 +990,17 @@ function App() {
     <footer className="site-footer">
       <div className="container footer-main">
         <div className="footer-brand"><Brand footer/><p>Security. Intelligence. Trust.<br/>Safety and security at any cost.</p></div>
-        <div className="footer-col"><b>Explore</b><a href="#services">Services</a><a href="#profile">Company Profile</a><a href="#events">Upcoming Events</a></div>
+      <div className="footer-col"><b>Explore</b><a href="#services">Services</a><a href="#profile">Company Profile</a><a href="#events">Upcoming Events</a><a href="#faq">Questions &amp; Answers</a></div>
         <div className="footer-col"><b>Get involved</b><a href="#complaints">Register Complaint</a><a href="#careers">Work With Us</a><a href="#contact">Contact Us</a></div>
         <div className="footer-col"><b>Team access</b><button className="footer-login" onClick={openLogin}>Team Login <ArrowUpRight size={14}/></button><span>Private Portal</span></div>
       </div>
       <div className="container footer-bottom">
         <span>© {new Date().getFullYear()} Golconda Security Services (Reg. No. 493-2013). All rights reserved.</span>
         <span>Ph: 9032545115 · Secunderabad</span>
+        <nav aria-label="Legal"><a href="/terms.html">Terms &amp; Conditions</a><a href="/privacy.html">Privacy Policy</a></nav>
         <a href="#home">Back to top ↑</a>
       </div>
+      <div className="container footer-credit">Created by Mayank Pandey</div>
     </footer>
 
     {loginOpen && <div className="modal-backdrop" role="presentation" onClick={()=>setLoginOpen(false)}>

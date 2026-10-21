@@ -1,51 +1,33 @@
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
-import { after, before, test } from "node:test";
+import { test } from "node:test";
 import { createApp, createIntakeRateLimiter } from "./index.js";
-import { createVercelRouteHandler } from "../api/_express.js";
+import { createVercelRouteHandler } from "./vercelAdapter.js";
 import healthFunction from "../api/health.js";
 import contactFunction from "../api/contact.js";
 import applicationsFunction from "../api/applications.js";
 import complaintsFunction from "../api/complaints.js";
-import sendMessageFunction from "../api/send-message.js";
+import profileFunction from "../api/profile.js";
+import guardImportFunction from "../api/guards/import.js";
+import operationsSitesFunction from "../api/operations/sites.js";
+import operationsSiteImportFunction from "../api/operations/site-import.js";
+import operationsPeopleFunction from "../api/operations/people.js";
+import operationsGuardsFunction from "../api/operations/guards.js";
+import operationsAdvancesFunction from "../api/operations/advances.js";
+import operationsPayrollFunction from "../api/operations/payroll.js";
+import telegramFunction from "../api/integrations/telegram.js";
+import sheetsSyncFunction from "../api/integrations/sheets-sync.js";
 
-const originalEmailEnv = {
-  RESEND_API_KEY: process.env.RESEND_API_KEY,
-  EMAIL_FROM: process.env.EMAIL_FROM,
-  NOTIFICATION_EMAIL: process.env.NOTIFICATION_EMAIL,
-};
-
-before(() => {
-  process.env.RESEND_API_KEY = "test-key";
-  process.env.EMAIL_FROM = "GSS Test <test@example.com>";
-  process.env.NOTIFICATION_EMAIL = "inbox@example.com";
-});
-
-after(() => {
-  for (const [key, value] of Object.entries(originalEmailEnv)) {
-    if (value === undefined) delete process.env[key];
-    else process.env[key] = value;
-  }
-});
-
-function fakeDatabase({ failInsertTable, isAdmin = true, healthError = null } = {}) {
+function fakeDatabase({ failInsertTable, healthError = null } = {}) {
   const rows = {};
   const database = {
     rows,
-    auth: {
-      async getUser(token) {
-        return token === "valid-token"
-          ? { data: { user: { id: "admin-uuid", email: "admin@example.com" } }, error: null }
-          : { data: { user: null }, error: new Error("Invalid token") };
-      },
-    },
     from(table) {
       const query = {
         values: null,
         insert(values) { this.values = values; return this; },
         select() { return this; },
         limit() { return this; },
-        eq() { return this; },
         async single() {
           if (table === failInsertTable) return { data: null, error: new Error("database unavailable") };
           const record = { ...this.values, id: rows[table]?.length + 1 || 1, created_at: new Date().toISOString() };
@@ -54,11 +36,6 @@ function fakeDatabase({ failInsertTable, isAdmin = true, healthError = null } = 
           return { data: { id: record.id, created_at: record.created_at }, error: null };
         },
         async maybeSingle() {
-          if (table === "admin_users") {
-            return isAdmin
-              ? { data: { user_id: "admin-uuid" }, error: null }
-              : { data: null, error: null };
-          }
           return { data: null, error: healthError };
         },
       };
@@ -68,37 +45,63 @@ function fakeDatabase({ failInsertTable, isAdmin = true, healthError = null } = 
   return database;
 }
 
-async function withApi(database, emailSender, run, appOptions = {}) {
+async function withApi(database, run, appOptions = {}) {
   const server = createServer(createApp({
     database,
-    emailSender,
     staticFiles: false,
     ...appOptions,
   }));
   await new Promise(resolve => server.listen(0, "127.0.0.1", resolve));
   const address = server.address();
   try {
-    await run(`http://127.0.0.1:${address.port}`);
+    await run("http://127.0.0.1:" + address.port);
   } finally {
     await new Promise((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
   }
 }
 
+const submissions = [
+  {
+    endpoint: "contact",
+    table: "contact_submissions",
+    body: { name: "Client", email: "client@example.com", service: "Guarding", message: "Need a quote." },
+  },
+  {
+    endpoint: "applications",
+    table: "job_applications",
+    body: { name: "Applicant", email: "candidate@example.com", role: "Guard", message: "Available." },
+  },
+  {
+    endpoint: "complaints",
+    table: "complaints",
+    body: { complainant_name: "Test Guard", role: "Security Guard", phone: "9000011111", subject: "Shift issue", details: "A complaint." },
+  },
+];
+
 test("same-origin API does not emit cross-origin CORS permissions", async () => {
-  await withApi(fakeDatabase(), async () => {}, async url => {
-    const response = await fetch(`${url}/api/health`, { headers: { Origin: "https://untrusted.example" } });
+  await withApi(fakeDatabase(), async url => {
+    const response = await fetch(url + "/api/health", { headers: { Origin: "https://untrusted.example" } });
     assert.equal(response.status, 200);
     assert.equal(response.headers.get("access-control-allow-origin"), null);
   });
 });
 
-test("Vercel route adapters export serverless functions and route only their supported method", async () => {
+test("Vercel route adapters expose each supported API function and restrict its method", async () => {
   const functions = [
     [healthFunction, "GET", "POST"],
     [contactFunction, "POST", "GET"],
     [applicationsFunction, "POST", "GET"],
     [complaintsFunction, "POST", "GET"],
-    [sendMessageFunction, "POST", "GET"],
+    [profileFunction, "GET", "POST"],
+    [guardImportFunction, "POST", "GET"],
+    [operationsSitesFunction, "POST", "GET"],
+    [operationsSiteImportFunction, "POST", "GET"],
+    [operationsPeopleFunction, "POST", "GET"],
+    [operationsGuardsFunction, "POST", "GET"],
+    [operationsAdvancesFunction, "GET, POST", "DELETE"],
+    [operationsPayrollFunction, "GET", "POST"],
+    [telegramFunction, "POST", "GET"],
+    [sheetsSyncFunction, "GET", "POST"],
   ];
   assert.ok(functions.every(([handler]) => typeof handler === "function"));
 
@@ -136,223 +139,152 @@ test("Vercel route adapters export serverless functions and route only their sup
   const tooLargeResponse = forwarded();
   route({ method: "POST", url: "/api/contact", headers: { "content-type": "application/json" }, body: { message: "x".repeat(31 * 1024) } }, tooLargeResponse);
   assert.equal(tooLargeResponse.statusCode, 413);
+
+  const importApp = (req, res) => res.status(200).json({ length: req.body.length });
+  const importRoute = createVercelRouteHandler("/api/guards/import", ["POST"], importApp, 1024 * 1024);
+  const largerBodyResponse = forwarded();
+  importRoute({ method: "POST", url: "/api/guards/import", headers: { "content-type": "application/json" }, body: { data: "x".repeat(40 * 1024) } }, largerBodyResponse);
+  assert.equal(largerBodyResponse.statusCode, 200);
 });
 
-test("health returns 200 only after a successful Supabase query", async () => {
-  await withApi(fakeDatabase(), async () => {}, async url => {
-    const response = await fetch(`${url}/api/health`);
-    const result = await response.json();
+test("health reports only Supabase configuration and reachability", async () => {
+  await withApi(fakeDatabase(), async url => {
+    const response = await fetch(url + "/api/health");
     assert.equal(response.status, 200);
-    assert.equal(result.databaseConfigured, true);
-    assert.equal(result.databaseReachable, true);
+    assert.deepEqual(await response.json(), {
+      status: "ok",
+      service: "Golconda Security Services API",
+      databaseConfigured: true,
+      databaseReachable: true,
+    });
   });
 
-  await withApi(fakeDatabase({ healthError: new Error("database unavailable") }), async () => {}, async url => {
-    const response = await fetch(`${url}/api/health`);
-    const result = await response.json();
+  await withApi(fakeDatabase({ healthError: new Error("database unavailable") }), async url => {
+    const response = await fetch(url + "/api/health");
     assert.equal(response.status, 503);
-    assert.equal(result.databaseConfigured, true);
-    assert.equal(result.databaseReachable, false);
+    assert.deepEqual(await response.json(), {
+      status: "degraded",
+      service: "Golconda Security Services API",
+      databaseConfigured: true,
+      databaseReachable: false,
+    });
   });
 });
 
-test("health reports missing intake email variable names without exposing values", async () => {
-  const emailVariables = {
-    RESEND_API_KEY: "test-resend-key",
-    EMAIL_FROM: "GSS Test <test@example.com>",
-    NOTIFICATION_EMAIL: "inbox@example.com",
+test("contact, application, and complaint submissions persist without external services", async () => {
+  const database = fakeDatabase();
+  const externalRequests = [];
+  const nativeFetch = globalThis.fetch;
+  globalThis.fetch = (input, init) => {
+    const target = input instanceof Request ? input.url : String(input);
+    if (!target.startsWith("http://127.0.0.1:")) {
+      externalRequests.push(new URL(target).origin);
+      return Promise.reject(new Error("Unexpected external request."));
+    }
+    return nativeFetch(input, init);
   };
-  const originalValues = Object.fromEntries(Object.keys(emailVariables).map((key) => [key, process.env[key]]));
 
   try {
-    Object.assign(process.env, emailVariables);
-    await withApi(fakeDatabase(), async () => {}, async url => {
-      const configuredResponse = await fetch(`${url}/api/health`);
-      const configured = await configuredResponse.json();
-      assert.equal(configured.emailConfigured, true);
-      assert.deepEqual(configured.emailMissing, []);
-
-      for (const missingVariable of Object.keys(emailVariables)) {
-        delete process.env[missingVariable];
-        const response = await fetch(`${url}/api/health`);
+    await withApi(database, async url => {
+      for (const submission of submissions) {
+        const response = await fetch(url + "/api/" + submission.endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(submission.body),
+        });
         const result = await response.json();
-        assert.equal(result.emailConfigured, false);
-        assert.deepEqual(result.emailMissing, [missingVariable]);
-        assert.equal(JSON.stringify(result).includes(emailVariables.RESEND_API_KEY), false);
-        process.env[missingVariable] = emailVariables[missingVariable];
+        assert.equal(response.status, 201);
+        assert.equal(result.ok, true);
+        assert.equal(typeof result.id, "number");
+        assert.ok(Number.isFinite(Date.parse(result.created_at)));
+        assert.match(result.message, /received successfully/i);
+        assert.equal(database.rows[submission.table].length, 1);
       }
     });
   } finally {
-    for (const [key, value] of Object.entries(originalValues)) {
-      if (value === undefined) delete process.env[key];
-      else process.env[key] = value;
+    globalThis.fetch = nativeFetch;
+  }
+
+  assert.deepEqual(externalRequests, []);
+});
+
+test("invalid submissions are rejected before database writes", async () => {
+  const database = fakeDatabase();
+  const invalidSubmissions = [
+    { endpoint: "contact", body: { name: "Client", email: "invalid", message: "Need help." } },
+    { endpoint: "applications", body: { email: "candidate@example.com" } },
+    { endpoint: "complaints", body: { complainant_name: "", role: "Invalid", phone: "bad", subject: "", details: "" } },
+  ];
+
+  await withApi(database, async url => {
+    for (const submission of invalidSubmissions) {
+      const response = await fetch(url + "/api/" + submission.endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(submission.body),
+      });
+      assert.equal(response.status, 400);
+      assert.ok((await response.json()).error);
     }
+  });
+
+  assert.deepEqual(database.rows, {});
+});
+
+test("database insert failures return errors instead of success", async () => {
+  for (const submission of submissions) {
+    const database = fakeDatabase({ failInsertTable: submission.table });
+    await withApi(database, async url => {
+      const response = await fetch(url + "/api/" + submission.endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(submission.body),
+      });
+      assert.equal(response.status, 500);
+      const result = await response.json();
+      assert.equal(result.ok, undefined);
+      assert.equal(result.error, "The request could not be completed.");
+    });
+    assert.deepEqual(database.rows, {});
   }
 });
 
-test("complaint is stored and the email layer is called", async () => {
-  const database = fakeDatabase();
-  const emails = [];
-  await withApi(database, async message => emails.push(message), async url => {
-    const response = await fetch(`${url}/api/complaints`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ complainant_name: "Test Guard", role: "Security Guard", phone: "+91 90000 11111", subject: "Shift issue", details: "A test complaint." }),
-    });
-    const result = await response.json();
-    assert.equal(response.status, 201);
-    assert.equal(result.emailSent, true);
-    assert.equal(database.rows.complaints[0].subject, "Shift issue");
-    assert.equal(emails.length, 1);
-    assert.match(emails[0].text, /A test complaint/);
-  });
-});
-
-test("invalid complaint input is rejected before database or email work", async () => {
-  const database = fakeDatabase();
-  let emailCount = 0;
-  await withApi(database, async () => { emailCount += 1; }, async url => {
-    const response = await fetch(`${url}/api/complaints`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ complainant_name: "", phone: "bad", subject: "", details: "" }),
-    });
-    assert.equal(response.status, 400);
-    assert.deepEqual(database.rows.complaints || [], []);
-    assert.equal(emailCount, 0);
-  });
-});
-
-test("database failure returns an error and never reports complaint success", async () => {
-  const database = fakeDatabase({ failInsertTable: "complaints" });
-  let emailCount = 0;
-  await withApi(database, async () => { emailCount += 1; }, async url => {
-    const response = await fetch(`${url}/api/complaints`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ complainant_name: "Test Guard", role: "Security Guard", phone: "9000011111", subject: "Issue", details: "Details" }),
-    });
-    assert.equal(response.status, 500);
-    assert.equal((await response.json()).ok, undefined);
-    assert.equal(emailCount, 0);
-  });
-});
-
-test("missing email configuration does not undo a persisted complaint", async () => {
-  delete process.env.RESEND_API_KEY;
-  const database = fakeDatabase();
-  let emailCount = 0;
-  await withApi(database, async () => { emailCount += 1; }, async url => {
-    const response = await fetch(`${url}/api/complaints`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ complainant_name: "Test Guard", role: "Security Guard", phone: "9000011111", subject: "Issue", details: "Details" }),
-    });
-    const result = await response.json();
-    assert.equal(response.status, 201);
-    assert.equal(result.emailSent, false);
-    assert.equal(database.rows.complaints.length, 1);
-    assert.equal(emailCount, 0);
-  });
-  process.env.RESEND_API_KEY = "test-key";
-});
-
-test("email provider failure is reported separately after complaint persistence", async () => {
-  const database = fakeDatabase();
-  const emailFailure = Object.assign(new Error("provider unavailable"), { code: "EMAIL_PROVIDER_ERROR" });
-  await withApi(database, async () => { throw emailFailure; }, async url => {
-    const response = await fetch(`${url}/api/complaints`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ complainant_name: "Test Guard", role: "Security Guard", phone: "9000011111", subject: "Issue", details: "Details" }),
-    });
-    const result = await response.json();
-    assert.equal(response.status, 201);
-    assert.equal(result.emailSent, false);
-    assert.equal(database.rows.complaints.length, 1);
-  });
-});
-
-test("public submission is unavailable when the server database is not configured", async () => {
-  let emailCount = 0;
-  await withApi(null, async () => { emailCount += 1; }, async url => {
-    const health = await fetch(`${url}/api/health`);
+test("public submissions return 503 when storage is not configured", async () => {
+  await withApi(null, async url => {
+    const health = await fetch(url + "/api/health");
     assert.equal(health.status, 503);
     assert.equal((await health.json()).databaseReachable, false);
-    const response = await fetch(`${url}/api/complaints`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ complainant_name: "Test Guard", role: "Security Guard", phone: "9000011111", subject: "Issue", details: "Details" }),
-    });
-    assert.equal(response.status, 503);
-    assert.equal((await response.json()).ok, undefined);
-    assert.equal(emailCount, 0);
+
+    for (const submission of submissions) {
+      const response = await fetch(url + "/api/" + submission.endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(submission.body),
+      });
+      assert.equal(response.status, 503);
+      assert.equal((await response.json()).ok, undefined);
+    }
   });
 });
 
-test("intake rate limit is shared across public form endpoints", async () => {
+test("intake rate limit is shared across public submission routes", async () => {
   const database = fakeDatabase();
-  let emailCount = 0;
-  await withApi(database, async () => { emailCount += 1; }, async url => {
-    const first = await fetch(`${url}/api/contact`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: "Test Person", email: "test@example.com", service: "General enquiry", message: "A test enquiry." }),
+  await withApi(database, async url => {
+    const first = await fetch(url + "/api/contact", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(submissions[0].body),
     });
     assert.equal(first.status, 201);
 
-    const limited = await fetch(`${url}/api/complaints`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ complainant_name: "Test Guard", role: "Security Guard", phone: "9000011111", subject: "Issue", details: "Details" }),
+    const limited = await fetch(url + "/api/complaints", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(submissions[2].body),
     });
     assert.equal(limited.status, 429);
     assert.match((await limited.json()).error, /Too many submissions/);
     assert.equal(database.rows.contact_submissions.length, 1);
     assert.equal(database.rows.complaints, undefined);
-    assert.equal(emailCount, 1);
   }, { intakeLimiter: createIntakeRateLimiter({ limit: 1, windowMs: 60_000 }) });
-});
-
-test("contact and job forms persist to their own tables", async () => {
-  const database = fakeDatabase();
-  await withApi(database, async () => {}, async url => {
-    const contact = await fetch(`${url}/api/contact`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: "Client", email: "client@example.com", service: "Guarding", message: "Need a quote." }),
-    });
-    const application = await fetch(`${url}/api/applications`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: "Applicant", email: "candidate@example.com", role: "Guard", message: "Available." }),
-    });
-    assert.equal(contact.status, 201);
-    assert.equal(application.status, 201);
-    assert.equal(database.rows.contact_submissions[0].name, "Client");
-    assert.equal(database.rows.job_applications[0].full_name, "Applicant");
-  });
-});
-
-test("admin message endpoint checks admin bearer auth and sends only when configured", async () => {
-  const database = fakeDatabase();
-  const emails = [];
-  await withApi(database, async message => emails.push(message), async url => {
-    const unauthorized = await fetch(`${url}/api/send-message`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title: "Test", message: "Test body" }),
-    });
-    assert.equal(unauthorized.status, 401);
-    const response = await fetch(`${url}/api/send-message`, {
-      method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer valid-token" },
-      body: JSON.stringify({ title: "Test", message: "Test body", recipients: "person@example.com" }),
-    });
-    assert.equal(response.status, 200);
-    assert.equal((await response.json()).emailSent, true);
-    assert.equal(emails.length, 1);
-  });
-});
-
-test("admin message rejects a signed-in non-admin", async () => {
-  const database = fakeDatabase({ isAdmin: false });
-  let emailCount = 0;
-  await withApi(database, async () => { emailCount += 1; }, async url => {
-    const response = await fetch(`${url}/api/send-message`, {
-      method: "POST", headers: { "Content-Type": "application/json", Authorization: "Bearer valid-token" },
-      body: JSON.stringify({ title: "Test", message: "Test body", recipients: "person@example.com" }),
-    });
-    assert.equal(response.status, 403);
-    assert.equal(emailCount, 0);
-  });
 });

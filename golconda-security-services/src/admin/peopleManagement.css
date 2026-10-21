@@ -1,0 +1,27 @@
+.people-management { display: grid; gap: 22px; }
+.people-private-note,.people-history-note { grid-column: 1 / -1; margin: 0; color: #64748b; font-size: 13px; line-height: 1.55; }
+.people-section-heading { grid-column: 1 / -1; color: #334155; font-size: 14px; margin: 7px 0 -5px; padding-bottom: 8px; border-bottom: 1px solid #e2e8f0; }
+.people-photo-control input { margin-top: 2px; }
+.people-photo-control small { color: #64748b; font-size: 11px; font-weight: 400; }
+.people-assignment-group { border: 1px solid #dbe3ea; border-radius: 10px; padding: 12px; margin: 0; min-width: 0; }
+.people-assignment-group legend { padding: 0 5px; color: #1e293b; font-size: 14px; font-weight: 700; }
+.people-assignment-group legend span { color: #64748b; font-weight: 500; }
+.people-assignment-group>p { margin: 0 0 8px; color: #64748b; font-size: 11px; }
+.people-check-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px,1fr)); gap: 7px; max-height: 200px; overflow: auto; }
+.people-check-list label { display: flex; align-items: flex-start; gap: 8px; border: 1px solid #e2e8f0; border-radius: 7px; padding: 9px; cursor: pointer; }
+.people-check-list input { width: 16px; margin-top: 2px; accent-color: #99752e; }
+.people-check-list span { min-width: 0; display: grid; gap: 3px; }
+.people-check-list b { color: #1e293b; font-size: 12px; }
+.people-check-list small { color: #64748b; font-size: 10px; overflow-wrap: anywhere; }
+.people-list-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 7px; }
+.people-list-actions .gss-admin-search { min-width: 200px; }
+.people-list-actions select { min-height: 35px; border: 1px solid #dbe3ea; border-radius: 6px; padding: 6px 8px; background: white; color: #334155; }
+.people-card { display: grid; grid-template-columns: 48px minmax(0,1fr) auto; gap: 12px; align-items: start; }
+.people-avatar { width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center; overflow: hidden; border: 1px solid #cbd5e1; background: #f1f5f9; color: #64748b; }
+.people-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.people-name-line { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; }
+.people-status { font-size: 10px; text-transform: capitalize; padding: 3px 7px; border-radius: 4px; color: #166534; background: #dcfce7; }
+.people-status.inactive,.people-status.relieved { color: #475569; background: #e2e8f0; }
+.people-status.on_leave { color: #854d0e; background: #fef3c7; }
+.people-management .site-details { grid-template-columns: repeat(auto-fit,minmax(190px,1fr)); }
+@media(max-width:700px) { .people-card { grid-template-columns: 42px minmax(0,1fr); } .people-avatar { width: 40px; height: 40px; } .people-card .gss-admin-item-actions { grid-column: 2; justify-content: flex-start; } .people-list-actions { justify-content: flex-start; } .people-list-actions .gss-admin-search { min-width: 100%; } }

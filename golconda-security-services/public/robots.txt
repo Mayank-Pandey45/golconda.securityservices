@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://golconda-securityservices.vercel.app/sitemap.xml
