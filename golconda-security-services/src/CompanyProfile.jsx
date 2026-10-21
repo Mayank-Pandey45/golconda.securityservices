@@ -1,5 +1,5 @@
 import React from "react";
-import { ArrowRight, ArrowUpRight, FileText, Image as ImageIcon, MapPin, PlayCircle, ShieldCheck } from "lucide-react";
+import { ArrowLeft, ArrowRight, ArrowUpRight, FileText, Image as ImageIcon, MapPin, PlayCircle, ShieldCheck } from "lucide-react";
 import "./companyProfile.css";
 
 function ProfileFileCard({ item }) {
@@ -22,24 +22,25 @@ export default function CompanyProfile({ services = [], documents = [], loading 
 
   return <section className="company-profile-page section" id="profile">
     <div className="container">
+      <a className="profile-back-link" href="/"><ArrowLeft size={17}/> Return to home</a>
       <div className="company-profile-hero">
         <div>
           <span className="eyebrow">COMPANY PROFILE · SECUNDERABAD</span>
-          <h2>Security grounded in <em>people and trust.</em></h2>
+          <h1>Security grounded in <em>people and trust.</em></h1>
           <p>The public company profile presents the current service catalogue and material approved by the company. Contact the team to confirm service availability, operating terms and coverage for a specific requirement.</p>
-          <div className="company-profile-actions"><a className="button button-gold" href="#contact">Discuss your requirements <ArrowRight size={16}/></a><span><MapPin size={15}/> Secunderabad, Telangana</span></div>
+          <div className="company-profile-actions"><a className="button button-gold" href="/#contact">Discuss your requirements <ArrowRight size={16}/></a><span><MapPin size={15}/> Secunderabad, Telangana</span></div>
         </div>
         <div className="company-profile-mark" aria-hidden="true"><ShieldCheck size={72}/><b>GSS</b><small>SECURITY · INTELLIGENCE · TRUST</small></div>
       </div>
 
       <div className="company-profile-facts">
-        <div><span>Registration</span><strong>493-2013 (AP Gov.)</strong></div>
+        <div><span>Company</span><strong>Golconda Security Services</strong></div>
         <div><span>Location</span><strong>Secunderabad, Telangana</strong></div>
         <div><span>Current catalogue</span><strong>{services.length ? services.map(service => service.title).join(", ") : "See the Services section"}</strong></div>
       </div>
 
       <div className="profile-purpose-grid">
-        <article><span className="eyebrow">SERVICE ENQUIRIES</span><h3>Discuss your site and requirements.</h3><p>Share the service you are considering, your location and the question you need answered. The company can confirm current availability and terms directly.</p><a className="text-link" href="#contact">Contact the team <ArrowRight size={14}/></a></article>
+        <article><span className="eyebrow">SERVICE ENQUIRIES</span><h3>Discuss your site and requirements.</h3><p>Share the service you are considering, your location and the question you need answered. The company can confirm current availability and terms directly.</p><a className="text-link" href="/#contact">Contact the team <ArrowRight size={14}/></a></article>
         <article><span className="eyebrow">PUBLIC MATERIAL</span><h3>Company information chosen for sharing.</h3><p>Only files explicitly approved by an administrator appear in this public profile. Drafts and employee records remain restricted to the admin portal.</p></article>
       </div>
 
@@ -55,7 +56,8 @@ export default function CompanyProfile({ services = [], documents = [], loading 
         <div className="profile-content-heading"><div><span className="eyebrow">PUBLIC COMPANY MATERIAL</span><h2>Documents & approved media</h2><p>Administrators choose which items can be shared. Draft and private records are not included in this public view.</p></div>{onRefresh && <button className="profile-refresh" type="button" onClick={onRefresh}>Refresh profile</button>}</div>
         {loading ? <p role="status" className="profile-content-state">Loading approved profile files…</p> : error ? <p role="alert" className="profile-content-state">{error}</p> : <>
           <section aria-labelledby="credentials-heading" className="profile-file-section">
-            <h3 id="credentials-heading"><FileText size={18}/> Company documents</h3>
+            <h3 id="credentials-heading"><FileText size={18}/> Compliance & company documents</h3>
+            <p className="profile-document-intro">PASARA licence, GST, ESI, PF and other compliance documents appear only when approved for public sharing.</p>
             {credentials.length ? <div className="profile-file-grid">{credentials.map(item => <ProfileFileCard key={item.id} item={item}/>)}</div> : <p className="profile-content-state">No approved company documents are currently available.</p>}
           </section>
           <section aria-labelledby="gallery-heading" className="profile-file-section">

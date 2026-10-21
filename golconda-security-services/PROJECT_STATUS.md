@@ -1,5 +1,7 @@
 # Golconda Security Services — Project Status
 
+> Current release follow-up (22 October 2026): see [RELEASE_VERIFICATION.md](RELEASE_VERIFICATION.md). The earlier snapshot below is historical: all five migrations are now recorded in production and the API is consolidated into one Vercel function. Do not reapply the three feature migrations using their older local timestamp filenames.
+
 **Review date:** 21 October 2026
 **Branch:** `codex/complete-implementation`
 **State:** Local changes only. Nothing has been committed, pushed, or deployed.

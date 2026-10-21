@@ -34,7 +34,7 @@ async function fetchAllSupabaseRows(table, columns = "*") {
 }
 
 function Brand({ footer = false }) {
-  return <a className={`brand ${footer ? "brand-footer" : ""}`} href="#home" aria-label="Golconda Security Services home">
+  return <a className={`brand ${footer ? "brand-footer" : ""}`} href="/#home" aria-label="Golconda Security Services home">
     <img className="brand-logo-image" src="/gss-logo.png" alt="Golconda Security Services logo" />
     <span className="brand-copy"><strong>GOLCONDA</strong><small>SECURITY SERVICES</small></span>
   </a>;
@@ -49,6 +49,7 @@ function SectionHeading({ eyebrow, title, subtitle, align = "center" }) {
 }
 
 function App() {
+  const isCompanyProfile = /^\/company-profile\/?$/.test(window.location.pathname);
   const [menuOpen, setMenuOpen] = useState(false);
   const [notice, setNotice] = useState("");
   const [publicContent, setPublicContent] = useState({ services: [], events: [], notifications: [] });
@@ -179,7 +180,7 @@ function App() {
       const { data: admin } = await supabase.from("admin_users").select("user_id").eq("user_id", user.id).maybeSingle();
       if (admin && active) {
         setAdminEmail(user.email || "Admin");
-        setAdminMode(true);
+        setAdminMode(!isCompanyProfile);
       } else {
         await supabase.auth.signOut();
       }
@@ -443,7 +444,7 @@ function App() {
 
   const navItems = [
     ["Home", "#home"], ["Services", "#services"], ["Notifications", "#notifications"],
-    ["Upcoming Events", "#events"], ["FAQ", "#faq"], ["Profile", "#profile"], ["Complaints", "#complaints"], ["Work With Us", "#careers"], ["Contact Us", "#contact"]
+    ["Upcoming Events", "#events"], ["FAQ", "#faq"], ["Company Profile", "/company-profile"], ["Complaints", "#complaints"], ["Work With Us", "#careers"], ["Contact Us", "#contact"]
   ];
 
   async function submitForm(event, endpoint, payload, reset, successText) {
@@ -834,13 +835,14 @@ function App() {
         <Brand/>
         <button className="menu-toggle" aria-label="Toggle navigation" onClick={() => setMenuOpen(!menuOpen)}>{menuOpen ? <X/> : <Menu/>}</button>
         <nav className={menuOpen ? "nav-links open" : "nav-links"}>
-          {navItems.map(([label, href]) => <a key={label} href={href} onClick={() => setMenuOpen(false)}>{label}</a>)}
+          {navItems.map(([label, href]) => <a key={label} href={href.startsWith("#") && isCompanyProfile ? `/${href}` : href} onClick={() => setMenuOpen(false)}>{label}</a>)}
           <button className="login-nav" onClick={openLogin}><LockKeyhole size={15}/> Team Login</button>
         </nav>
       </div>
     </header>
 
     <main>
+      {isCompanyProfile ? <CompanyProfile services={publicContent.services} documents={profileDocuments} loading={profileLoading} error={profileError} onRefresh={loadPublicProfile}/> : <>
       <section className="hero" id="home">
         <div className="hero-grid"/>
         <div className="container hero-inner">
@@ -921,8 +923,6 @@ function App() {
         </div>
       </section>
 
-      <CompanyProfile services={publicContent.services} documents={profileDocuments} loading={profileLoading} error={profileError} onRefresh={loadPublicProfile}/>
-
       {/* Complaints Section */}
       <section className="section" id="complaints" style={{background: "#f8fafc", borderTop: "1px solid #e2e8f0", borderBottom: "1px solid #e2e8f0"}}>
         <div className="container careers-grid">
@@ -985,20 +985,21 @@ function App() {
           </form>
         </div>
       </section>
+      </>}
     </main>
 
     <footer className="site-footer">
       <div className="container footer-main">
         <div className="footer-brand"><Brand footer/><p>Security. Intelligence. Trust.<br/>Safety and security at any cost.</p></div>
-      <div className="footer-col"><b>Explore</b><a href="#services">Services</a><a href="#profile">Company Profile</a><a href="#events">Upcoming Events</a><a href="#faq">Questions &amp; Answers</a></div>
-        <div className="footer-col"><b>Get involved</b><a href="#complaints">Register Complaint</a><a href="#careers">Work With Us</a><a href="#contact">Contact Us</a></div>
+      <div className="footer-col"><b>Explore</b><a href="/#services">Services</a><a href="/company-profile">Company Profile</a><a href="/#events">Upcoming Events</a><a href="/#faq">Questions &amp; Answers</a></div>
+        <div className="footer-col"><b>Get involved</b><a href="/#complaints">Register Complaint</a><a href="/#careers">Work With Us</a><a href="/#contact">Contact Us</a></div>
         <div className="footer-col"><b>Team access</b><button className="footer-login" onClick={openLogin}>Team Login <ArrowUpRight size={14}/></button><span>Private Portal</span></div>
       </div>
       <div className="container footer-bottom">
         <span>© {new Date().getFullYear()} Golconda Security Services (Reg. No. 493-2013). All rights reserved.</span>
         <span>Ph: 9032545115 · Secunderabad</span>
         <nav aria-label="Legal"><a href="/terms.html">Terms &amp; Conditions</a><a href="/privacy.html">Privacy Policy</a></nav>
-        <a href="#home">Back to top ↑</a>
+        <a href="/#home">Back to top ↑</a>
       </div>
       <div className="container footer-credit">Created by Mayank Pandey</div>
     </footer>
