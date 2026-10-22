@@ -65,40 +65,44 @@
     animation: none !important;
   }
 }
-/* FAQ — consistent dark navy / blue theme, with readable text on every state. */
+.faq-section{background:#f5f7f8;border-top:1px solid #e1e6e8;border-bottom:1px solid #e1e6e8}.faq-list{display:grid;grid-template-columns:1fr 1fr;gap:10px}.faq-list details{border:1px solid #dbe2e5;background:#fff;padding:15px 17px}.faq-list summary{font-size:13px;font-weight:700;color:#1c2a32;cursor:pointer;line-height:1.5}.faq-list details p{font-size:12px;color:#58666c;line-height:1.65;margin:12px 0 0}.footer-credit{padding:0 0 14px;color:#697576;text-align:right;font-size:9px}.footer-bottom nav{display:flex;gap:12px;flex-wrap:wrap}.footer-bottom nav a{font-size:9px}
+@media(max-width:720px){.faq-list{grid-template-columns:1fr}}
+
+/* Light FAQ surface overrides dark-section heading colours. */
+.faq-section{color:#172d3d}
+.faq-section .eyebrow{color:#11628b}
+.faq-section .section-heading h2{color:#102c40}
+.faq-section .section-heading p{color:#465c69;font-size:15px}
+.faq-list details{border-radius:5px;padding:18px 20px}
+.faq-list summary{color:#17354a;font-size:15px;line-height:1.6;min-height:24px}
+.faq-list details p{color:#465c69;font-size:14px;line-height:1.8}
+.faq-list summary:focus-visible{outline:2px solid #11628b;outline-offset:5px}
+@media(max-width:540px){.faq-list details{padding:17px}.faq-section .section-heading h2{font-size:30px}.faq-list{gap:12px}}
+
+/* FAQ THEME FIX — isolated to the FAQ section; all existing site styles preserved. */
 #faq.faq-section {
-  background: linear-gradient(145deg, #0b1117 0%, #111e29 58%, #0d1720 100%) !important;
-  color: #f4f8ff !important;
-  border-top: 1px solid rgba(22, 133, 189, .3);
-  border-bottom: 1px solid rgba(22, 133, 189, .3);
+  background: linear-gradient(145deg, #0b1117 0%, #111e29 58%, #0d1720 100%);
+  color: #f4f8ff;
+  border-top: 1px solid rgba(22, 133, 189, 0.3);
+  border-bottom: 1px solid rgba(22, 133, 189, 0.3);
 }
-#faq .section-heading .eyebrow { color: #54b7e5 !important; }
-#faq .section-heading h2 { color: #f4f8ff !important; }
-#faq .section-heading h2 em { color: #9edcff !important; }
-#faq .section-heading p { color: #b9cbd6 !important; font-size: 14px; }
+#faq .section-heading .eyebrow { color: #54b7e5; }
+#faq .section-heading h2 { color: #f4f8ff; }
+#faq .section-heading h2 em { color: #9edcff; }
+#faq .section-heading p { color: #b9cbd6; }
 #faq .faq-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
 #faq .faq-list details {
   min-width: 0;
   padding: 19px 21px;
-  background: #13232e !important;
+  background: #13232e;
   border: 1px solid #2a485a;
   border-radius: 7px;
   color: #eaf4fb;
-  transition: background .2s, border-color .2s;
 }
-#faq .faq-list details[open] { background: #182e3c !important; border-color: #1685bd; }
-#faq .faq-list summary {
-  color: #f4f8ff !important;
-  font-size: 15px;
-  font-weight: 700;
-  line-height: 1.6;
-  cursor: pointer;
-}
-#faq .faq-list details p { color: #c1d1dc !important; font-size: 14px; line-height: 1.8; margin: 12px 0 0; }
+#faq .faq-list details[open] { background: #182e3c; border-color: #1685bd; }
+#faq .faq-list summary { color: #f4f8ff; font-size: 15px; font-weight: 700; line-height: 1.6; cursor: pointer; }
+#faq .faq-list details p { color: #c1d1dc; font-size: 14px; line-height: 1.8; margin: 12px 0 0; }
 #faq .faq-list summary:focus-visible { outline: 2px solid #54b7e5; outline-offset: 5px; }
-.footer-credit { padding: 0 0 14px; color: #697576; text-align: right; font-size: 9px; }
-.footer-bottom nav { display: flex; gap: 12px; flex-wrap: wrap; }
-.footer-bottom nav a { font-size: 9px; }
 @media (max-width: 720px) { #faq .faq-list { grid-template-columns: 1fr; } }
 @media (max-width: 540px) {
   #faq .faq-list details { padding: 17px; }
