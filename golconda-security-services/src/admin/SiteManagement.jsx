@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { ArrowDownToLine, Building2, Check, FileSpreadsheet, Pencil, Plus, RefreshCw, Trash2, Upload, X } from "lucide-react";
-import { apiUrl } from "../api.js";
+import { apiUrl, readApiResponse } from "../api.js";
 import { downloadFile } from "../guardSpreadsheet.js";
 import { parseSiteImportFile, previewSiteImportRows, siteImportTemplateCsv, siteRecordsToCsv } from "../siteSpreadsheet.js";
 import { supabase } from "../supabase.js";
@@ -23,13 +23,7 @@ async function apiPost(path, body) {
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${data.session.access_token}` },
     body: JSON.stringify(body),
   });
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    const details = result.details?.rows?.map(row => `Row ${row.row}: ${row.message}`).join(" ")
-      || result.details?.matches?.map(match => `${match.site_code}: ${match.message}`).join(" ");
-    throw new Error([result.error || "The request failed.", details].filter(Boolean).join(" "));
-  }
-  return result;
+  return readApiResponse(response);
 }
 
 function AssignmentChecks({ title, options, value, onChange, label }) {

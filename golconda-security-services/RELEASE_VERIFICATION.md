@@ -1,3 +1,5 @@
+> Latest local correction: see [API_ROUTING_FIX.md](API_ROUTING_FIX.md). Nested production APIs currently return Vercel 404; the pending single-entry rewrite fix has not been deployed. The earlier verification below is historical and did not validate those nested routes.
+
 # Vercel Hobby release verification — 22 October 2026
 
 The existing API wrappers have been consolidated into `api/[...path].js`.

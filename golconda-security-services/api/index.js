@@ -1,3 +1,5 @@
+// One stable Vercel function. vercel.json explicitly rewrites every /api/*
+// request here so multi-segment Express routes do not depend on filename routing.
 import { createApp } from "../server/index.js";
 
 const app = createApp({ staticFiles: false, parseBody: false });
@@ -23,13 +25,13 @@ export function createCatchAllHandler(application = app) {
   return function handler(req, res) {
     const originalUrl = String(req.url || "/");
     const queryIndex = originalUrl.indexOf("?");
-    const query = queryIndex >= 0 ? originalUrl.slice(queryIndex) : "";
+    const search = new URLSearchParams(queryIndex >= 0 ? originalUrl.slice(queryIndex + 1) : "");
     let pathname = queryIndex >= 0
       ? originalUrl.slice(0, queryIndex)
       : originalUrl;
 
-    if (!pathname.startsWith("/api/")) {
-      const rawPath = req.query?.path;
+    if (!pathname.startsWith("/api/") || pathname === "/api/index" || pathname === "/api/index/") {
+      const rawPath = req.query?.__route ?? search.get("__route") ?? req.query?.path;
       const segments = Array.isArray(rawPath)
         ? rawPath
         : rawPath == null ? [] : [rawPath];
@@ -40,6 +42,11 @@ export function createCatchAllHandler(application = app) {
       pathname = "/api/" + segments.map(String).join("/");
     }
 
+    // Routing metadata is never forwarded as a business query parameter.
+    search.delete("__route");
+    if (req.query) { delete req.query.__route; delete req.query.path; }
+    pathname = pathname.replace(/\/+$/, "");
+    const query = search.size ? `?${search}` : "";
     const route = routeLimits[pathname];
     if (!route) {
       return res.status(404).json({ error: "API route not found." });

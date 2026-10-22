@@ -1,4 +1,4 @@
-import { normalizeGuardRow } from "../shared/guardValidation.js";
+import { guardFieldForHeader, normalizeGuardHeader, normalizeGuardRow } from "../shared/guardValidation.js";
 import { normalizePhoneDigits } from "../shared/operationsValidation.js";
 
 export const MAX_GUARD_IMPORT_BYTES = 5 * 1024 * 1024;
@@ -78,18 +78,14 @@ function scalarCellValue(value) {
 function rowsToRecords(matrix, { formulaCells = new Map() } = {}) {
   const firstHeaderIndex = matrix.findIndex(row => row.some(value => String(value ?? "").trim()));
   if (firstHeaderIndex < 0) throw new Error("The selected file is empty.");
-  const headerRow = matrix[firstHeaderIndex].map(value => String(value ?? "").trim());
-  const knownHeaders = new Set(headerRow.map(value => value.toLowerCase().replace(/[^a-z0-9]/g, "")));
-  if (!knownHeaders.has("fullname") && !knownHeaders.has("name") && !knownHeaders.has("guardname") && !knownHeaders.has("employeename")) {
-    throw new Error("Required column missing: Full Name.");
-  }
-  if (!knownHeaders.has("phone") && !knownHeaders.has("phonenumber") && !knownHeaders.has("mobile") && !knownHeaders.has("mobilenumber") && !knownHeaders.has("contact") && !knownHeaders.has("contactnumber")) {
-    throw new Error("Required column missing: Phone.");
-  }
+  const headerRow = matrix[firstHeaderIndex].map(value => String(scalarCellValue(value) ?? "").trim());
+  const knownFields = new Set(headerRow.map(guardFieldForHeader));
+  if (!knownFields.has("full_name")) throw new Error("Required column missing: Full Name (or Name / Guard Name / Employee Name).");
+  if (!knownFields.has("phone")) throw new Error("Required column missing: Phone (or Phone Number / Mobile No / Contact Number).");
 
   const recognized = new Set();
   for (const header of headerRow) {
-    const normalized = header.toLowerCase().replace(/[^a-z0-9]/g, "");
+    const normalized = guardFieldForHeader(header) || normalizeGuardHeader(header);
     if (!normalized) continue;
     if (recognized.has(normalized)) throw new Error(`Duplicate column heading: ${header}.`);
     recognized.add(normalized);

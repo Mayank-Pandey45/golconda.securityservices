@@ -1,3 +1,4 @@
+import { createCatchAllHandler } from "../api/index.js";
 import assert from "node:assert/strict";
 import { generateKeyPairSync } from "node:crypto";
 import { test } from "node:test";
@@ -176,4 +177,33 @@ test("advances only request Sheets enqueue when the integration is explicitly en
   assert.equal(database.calls[1].args.p_advance.enqueue_sheet_sync, true);
   await recordAdvance(database, input, "admin-user", { ...configuredEnv, GOOGLE_SHEETS_SYNC_ENABLED: "false" });
   assert.equal(database.calls[2].args.p_advance.enqueue_sheet_sync, false);
+});
+
+
+test('Vercel rewrite bridge completes authorized Site, Guard and Field Officer creates with mocked persistence', async () => {
+  const database = fakeDatabase();
+  const handler = createCatchAllHandler(createApp({ database, parseBody: false, staticFiles: false, operationsLimiter: (_req, _res, next) => next() }));
+  const server = createServer(async (req, res) => {
+    const chunks = []; for await (const chunk of req) chunks.push(chunk);
+    req.body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    const path = new URL(req.url, 'http://local').pathname.slice(5);
+    req.url = '/api/index?__route=' + encodeURIComponent(path); req.query = { __route: path };
+    handler(req, res);
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const person = { full_name: 'Asha Rao', phone: '9876543210', joining_date: '01/04/26' };
+    const cases = [
+      ['sites', { action: 'save', site: { ...validSite, payroll_effective_date: '01-04-2026' } }, 'save_site_with_assignments'],
+      ['guards', { action: 'save', person, site_ids: [2, 3] }, 'save_guard_profile'],
+      ['people', { action: 'save', employee_type: 'field_officer', person, site_ids: [2, 3] }, 'save_employee_profile']
+    ];
+    for (const [path, body, procedure] of cases) {
+      const response = await fetch('http://127.0.0.1:' + server.address().port + '/api/operations/' + path, { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer valid-token' }, body: JSON.stringify(body) });
+      assert.equal(response.status, 200, path); assert.equal((await response.json()).ok, true);
+      const call = database.calls.at(-1); assert.equal(call.name, procedure); assert.equal(call.args.p_actor_id, 'admin-user');
+      if (path === 'sites') assert.equal(call.args.p_site.payroll_effective_date, '2026-04-01');
+      else { assert.equal(call.args.p_person.joining_date, '2026-04-01'); assert.deepEqual(call.args.p_site_ids, [2, 3]); }
+    }
+  } finally { await new Promise(resolve => server.close(resolve)); }
 });

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { ArrowDownToLine, Camera, Check, Pencil, Plus, RefreshCw, Trash2, X } from "lucide-react";
-import { apiUrl } from "../api.js";
+import { apiUrl, readApiResponse } from "../api.js";
 import { downloadFile } from "../guardSpreadsheet.js";
 import { supabase } from "../supabase.js";
 import "./peopleManagement.css";
@@ -18,8 +18,7 @@ async function postPeople(body) {
   const response = await fetch(apiUrl("/api/operations/people"), {
     method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${data.session.access_token}` }, body: JSON.stringify(body),
   });
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(result.error || "The employee request failed.");
+  const result = await readApiResponse(response);
   return result;
 }
 

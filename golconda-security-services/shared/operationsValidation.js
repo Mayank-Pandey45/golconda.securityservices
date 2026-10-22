@@ -1,3 +1,5 @@
+import { normalizeImportDate } from "./importDate.js";
+
 export class OperationsValidationError extends Error {
   constructor(message, field = "record") {
     super(message);
@@ -33,14 +35,8 @@ function amount(value, field, label, { required = false } = {}) {
 }
 
 function date(value, field, label) {
-  const raw = text(value, field, label);
-  if (!raw) return null;
-  const parsed = /^([0-9]{4})-([0-9]{2})-([0-9]{2})$/.exec(raw);
-  const normalizedDate = parsed ? new Date(Date.UTC(Number(parsed[1]), Number(parsed[2]) - 1, Number(parsed[3]))) : null;
-  if (!parsed || normalizedDate.toISOString().slice(0, 10) !== raw) {
-    throw new OperationsValidationError(`${label} must use YYYY-MM-DD.`, field);
-  }
-  return raw;
+  try { return normalizeImportDate(value); }
+  catch (error) { throw new OperationsValidationError(`${label}: ${error.message}`, field); }
 }
 
 export function normalizePhoneDigits(value) {

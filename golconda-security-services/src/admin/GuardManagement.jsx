@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Camera, Download, FileSpreadsheet, FileText, Pencil, Plus, RefreshCw, Trash2, Upload, X } from "lucide-react";
 import { supabase } from "../supabase";
-import { apiUrl } from "../api";
+import { apiUrl, readApiResponse } from "../api";
 import { normalizeGuardRow } from "../../shared/guardValidation.js";
 import {
   downloadFile,
@@ -27,8 +27,7 @@ async function postGuard(body) {
   const response = await fetch(apiUrl("/api/operations/guards"), {
     method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${data.session.access_token}` }, body: JSON.stringify(body),
   });
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(result.error || "The guard request failed.");
+  const result = await readApiResponse(response);
   return result;
 }
 
@@ -269,8 +268,7 @@ export default function GuardManagement({ items = [], sites = [], search = "", o
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${accessToken}` },
         body: JSON.stringify({ rows: preview.map(row => ({ rowNumber: row.rowNumber, fields: row.raw })) }),
       });
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(result.error || "The import could not be completed.");
+      const result = await readApiResponse(response);
       setImportResult(result);
       setMessage(`Import complete: ${result.inserted} inserted, ${result.skipped} skipped, ${result.failed} failed.`);
       await onRefresh();

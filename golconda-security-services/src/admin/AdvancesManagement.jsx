@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowDownToLine, Check, ChevronLeft, ChevronRight, Plus, RefreshCw, RotateCcw, X } from "lucide-react";
-import { apiUrl } from "../api.js";
+import { apiUrl, readApiResponse } from "../api.js";
 import { supabase } from "../supabase.js";
 import { downloadFile } from "../guardSpreadsheet.js";
 import "./advancesManagement.css";
@@ -19,8 +19,7 @@ async function getToken() {
 async function requestJson(path, options = {}) {
   const token = await getToken();
   const response = await fetch(apiUrl(path), { ...options, headers: { ...(options.headers || {}), Authorization: `Bearer ${token}` } });
-  const result = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(result.error || "The finance request could not be completed.");
+  const result = await readApiResponse(response);
   return result;
 }
 

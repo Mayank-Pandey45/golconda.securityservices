@@ -27,7 +27,7 @@ test('dedicated profile renders approved document metadata, images, videos and h
 
 test('Vercel profile deep links rewrite only to the SPA and leave API routing intact', async () => {
   const config = JSON.parse(await readFile(new URL('../vercel.json', import.meta.url), 'utf8'));
-  assert.deepEqual(config.rewrites, [
+  assert.deepEqual(config.rewrites.filter(rule => !rule.source.startsWith('/api/')), [
     { source: '/company-profile', destination: '/index.html' },
     { source: '/company-profile/', destination: '/index.html' }
   ]);

@@ -41,3 +41,15 @@ test("site CSV export escapes formula-like values for spreadsheet applications",
   assert.match(csv, /'=cmd/);
   assert.match(csv, /'\+HYPERLINK/);
 });
+
+
+test('Site CSV and Excel imports normalize payroll and nested employee day-first dates', async () => {
+  const headers = ['Site Code', 'Site Name', 'Payroll Effective Date', 'Guard Full Name', 'Guard Phone', 'Guard Joining Date', 'Guard Salary Effective From', 'Supervisor Name', 'Supervisor Phone', 'Supervisor Joining Date', 'Field Officer Name', 'Field Officer Phone', 'Field Officer Salary Effective From'];
+  const values = ['S-01', 'North Gate', '01/04/26', 'Asha', '9876543210', '31-03-2026', '01/04/26', 'Deepa', '9876543211', '01/04/26', 'Ravi', '9876543212', '01-04-2026'];
+  const { default: ExcelJS } = await import('exceljs'); const book = new ExcelJS.Workbook(); const sheet = book.addWorksheet('Sites'); sheet.addRow(headers); sheet.addRow(values);
+  for (const file of [asFile('sites.csv', headers.join(',') + '\n' + values.join(',')), asFile('sites.xlsx', new Uint8Array(await book.xlsx.writeBuffer()))]) {
+    const preview = previewSiteImportRows(await parseSiteImportFile(file));
+    assert.equal(preview.errors.length, 0, JSON.stringify(preview.errors));
+    const site = preview.sites[0]; assert.equal(site.payroll_effective_date, '2026-04-01'); assert.equal(site.guards[0].joining_date, '2026-03-31'); assert.equal(site.guards[0].salary_effective_from, '2026-04-01'); assert.equal(site.supervisors[0].joining_date, '2026-04-01'); assert.equal(site.field_officers[0].salary_effective_from, '2026-04-01');
+  }
+});

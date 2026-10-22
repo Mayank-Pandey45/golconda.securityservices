@@ -1,5 +1,7 @@
 # Golconda Security Services — Project Status
 
+> Pending API routing/import fix: [API_ROUTING_FIX.md](API_ROUTING_FIX.md). Production nested admin APIs return platform 404; local fixes await approved Preview verification and production release. No database migration is required.
+
 > Current release follow-up (22 October 2026): see [RELEASE_VERIFICATION.md](RELEASE_VERIFICATION.md). The earlier snapshot below is historical: all five migrations are now recorded in production and the API is consolidated into one Vercel function. Do not reapply the three feature migrations using their older local timestamp filenames.
 
 **Review date:** 21 October 2026

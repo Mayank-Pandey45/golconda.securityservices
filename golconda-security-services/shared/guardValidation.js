@@ -1,3 +1,5 @@
+import { normalizeImportDate } from "./importDate.js";
+
 export class GuardValidationError extends Error {
   constructor(message, field = "record") {
     super(message);
@@ -8,8 +10,8 @@ export class GuardValidationError extends Error {
 
 const fieldAliases = {
   employee_code: ["employee code", "employee id", "staff id"],
-  full_name: ["full name", "fullname", "name", "guard name", "employee name"],
-  phone: ["phone", "phone number", "mobile", "mobile number", "contact", "contact number"],
+  full_name: ["full name", "fullname", "name", "guard name", "employee name", "guard full name", "employee full name", "name of guard", "name of employee", "staff name"],
+  phone: ["phone", "phone number", "mobile", "mobile number", "contact", "contact number", "phone no", "mobile no", "contact no", "telephone", "telephone number"],
   email: ["email", "email address"],
   designation: ["designation", "role", "position"],
   status: ["status", "employment status"],
@@ -18,7 +20,7 @@ const fieldAliases = {
   date_of_birth: ["date of birth", "dob"],
   residential_address: ["residential address", "home address", "address"],
   assigned_site: ["assigned site", "site", "site name", "deployment site", "location"],
-  assigned_sites: ["assigned sites", "sites", "site names", "deployment sites", "locations"],
+  assigned_sites: ["assigned sites", "sites", "site names", "deployment sites", "locations", "assigned sites semicolon-separated site names or codes"],
   salary_amount: ["salary amount", "salary amount inr", "salary", "salary inr", "pay", "pay amount"],
   salary_frequency: ["salary frequency", "pay frequency", "frequency"],
   salary_effective_date: ["salary effective date", "effective date"],
@@ -27,11 +29,11 @@ const fieldAliases = {
 
 const aliasToField = new Map(
   Object.entries(fieldAliases).flatMap(([field, aliases]) =>
-    aliases.map(alias => [normalizeHeader(alias), field])
+    [field, ...aliases].map(alias => [normalizeGuardHeader(alias), field])
   )
 );
 
-function normalizeHeader(value) {
+export function normalizeGuardHeader(value) {
   return String(value ?? "").trim().toLowerCase().replace(/[^a-z0-9]/g, "");
 }
 
@@ -47,10 +49,14 @@ function valueText(value) {
   return typeof value === "string" ? value.trim() : "";
 }
 
+export function guardFieldForHeader(header) {
+  return aliasToField.get(normalizeGuardHeader(header));
+}
+
 function fieldValue(record, field) {
   for (const [header, value] of Object.entries(record)) {
     if (header.startsWith("__")) continue;
-    const target = aliasToField.get(normalizeHeader(header));
+    const target = aliasToField.get(normalizeGuardHeader(header));
     if (target === field) return value;
   }
   return undefined;
@@ -71,39 +77,8 @@ function optionalText(value, field, label, maxLength, fallback = "") {
 }
 
 function normalizedDate(value, field, label) {
-  if (value === undefined || value === null || value === "") return null;
-  let year;
-  let month;
-  let day;
-  if (value instanceof Date) {
-    if (Number.isNaN(value.valueOf())) throw new GuardValidationError(`${label} must be a valid date.`, field);
-    year = value.getFullYear();
-    month = value.getMonth() + 1;
-    day = value.getDate();
-  } else {
-    const text = valueText(value);
-    if (typeof text !== "string") throw new GuardValidationError(`${label} must be a valid date.`, field);
-    const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(text);
-    const local = /^(\d{1,2})[/.\-](\d{1,2})[/.\-](\d{4})$/.exec(text);
-    if (iso) {
-      [, year, month, day] = iso.map(Number);
-    } else if (local) {
-      [, day, month, year] = local.map(Number);
-    } else if (/^\d+(?:\.\d+)?$/.test(text) && Number(text) >= 20000 && Number(text) <= 80000) {
-      const serial = Number(text);
-      const date = new Date(Date.UTC(1899, 11, 30) + Math.floor(serial) * 86400000);
-      year = date.getUTCFullYear();
-      month = date.getUTCMonth() + 1;
-      day = date.getUTCDate();
-    } else {
-      throw new GuardValidationError(`${label} must be YYYY-MM-DD or DD/MM/YYYY.`, field);
-    }
-  }
-  const check = new Date(Date.UTC(year, month - 1, day));
-  if (check.getUTCFullYear() !== year || check.getUTCMonth() + 1 !== month || check.getUTCDate() !== day) {
-    throw new GuardValidationError(`${label} must be a real calendar date.`, field);
-  }
-  return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  try { return normalizeImportDate(value); }
+  catch (error) { throw new GuardValidationError(`${label}: ${error.message}`, field); }
 }
 
 function normalizedStatus(value) {

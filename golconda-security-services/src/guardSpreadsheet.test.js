@@ -99,3 +99,20 @@ test("spreadsheet import rejects unsupported types and files larger than the cap
   const oversized = { name: "guards.csv", size: 5 * 1024 * 1024 + 1, text: async () => "" };
   await assert.rejects(() => parseGuardImportFile(oversized), /5 MB or smaller/i);
 });
+
+
+test('Guard CSV aliases and Excel rich-text headers share the server field mapping', async () => {
+  for (const header of ['Full Name', 'FULL_NAME', 'Guard Full Name', 'Employee Full Name', 'Name of Guard', 'Name of Employee', 'Staff Name']) {
+    const rows = await parseGuardImportFile(asFile('guards.csv', header + ',Mobile No.,Joining Date,Date of Birth,Salary Effective Date\nAsha Rao,9876543210,31-01-2026,01/04/90,01/01/26'));
+    const [preview] = previewGuardImportRows(rows);
+    assert.equal(preview.state, 'ready', preview.message);
+    assert.equal(preview.record.full_name, 'Asha Rao'); assert.equal(preview.record.joining_date, '2026-01-31'); assert.equal(preview.record.date_of_birth, '1990-04-01'); assert.equal(preview.record.salary_effective_date, '2026-01-01');
+  }
+  await assert.rejects(() => parseGuardImportFile(asFile('duplicate.csv', 'Full Name,Guard Name,Phone\nA,B,9876543210')), /Duplicate column/);
+  const { default: ExcelJS } = await import('exceljs');
+  const book = new ExcelJS.Workbook(); const sheet = book.addWorksheet('Guards');
+  sheet.addRow([{ richText: [{ text: 'Full ' }, { text: 'Name' }] }, 'Contact No.', 'Joining Date', 'Salary Effective Date']);
+  sheet.addRow(['Asha Rao', '9876543210', '01/04/26', new Date('2026-04-01T00:00:00Z')]);
+  const [preview] = previewGuardImportRows(await parseGuardImportFile(asFile('guards.xlsx', new Uint8Array(await book.xlsx.writeBuffer()))));
+  assert.equal(preview.state, 'ready', preview.message); assert.equal(preview.record.joining_date, '2026-04-01'); assert.equal(preview.record.salary_effective_date, '2026-04-01');
+});

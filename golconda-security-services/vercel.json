@@ -41,6 +41,10 @@
   ],
   "rewrites": [
     {
+      "source": "/api/:path*",
+      "destination": "/api/index?__route=:path*"
+    },
+    {
       "source": "/company-profile",
       "destination": "/index.html"
     },

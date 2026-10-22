@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { supabase, supabaseError } from "./supabase";
-import { apiUrl } from "./api";
+import { apiUrl, readApiResponse } from "./api";
 import { formatUtcDate, toDateInputValue, toUtcDateTimestamp } from "./dateOnly";
 import { toDateTimeLocalValue, toUtcDateTime, safeNotificationHref } from "./notificationRules.js";
 import { prioritizeNotifications } from "./notificationRules.js";
@@ -160,7 +160,7 @@ function App() {
     setProfileError("");
     try {
       const response = await fetch(apiUrl("/api/profile"), { cache: "no-store" });
-      const result = await response.json().catch(() => ({}));
+      const result = await readApiResponse(response);
       if (!response.ok) throw new Error(result.error || "Approved company profile files could not be loaded.");
       setProfileDocuments(Array.isArray(result.documents) ? result.documents : []);
     } catch (error) {
@@ -461,7 +461,7 @@ function App() {
       const response = await fetch(apiUrl(`/api/${endpoint}`), {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
       });
-      const result = await response.json().catch(() => ({}));
+      const result = await readApiResponse(response);
       if (!response.ok || result.ok !== true || !result.id) throw new Error(result.error || "The submission could not be confirmed as saved. Please retry or contact the company.");
       setNotice(result.message || successText);
       reset();
