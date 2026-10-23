@@ -1,4 +1,5 @@
 import express from "express";
+import { manageRecord, enqueueMediaCleanup, cleanupMedia } from "./recordManagement.js";
 import { rateLimit } from "express-rate-limit";
 import { existsSync } from "node:fs";
 import path from "node:path";
@@ -14,7 +15,7 @@ import { GuardImportRequestError, importGuardRows } from "./guardImport.js";
 import { getPublicProfileDocuments } from "./publicProfile.js";
 import { handleTelegramWebhook } from "./telegramIntegration.js";
 import { hasCronAuthorization, isGoogleSheetsSyncConfigured, SheetsSyncError, syncAdvanceSheetOutbox } from "./googleSheetsIntegration.js";
-import { adjustAdvance, createSalaryAdjustment, deleteGuard, getPayrollSummary, importSiteRows, listAdvances, OperationsRequestError, recordAdvance, recoverAdvance, requireAdmin, saveEmployee, saveGuard, saveSite } from "./operations.js";
+import { adjustAdvance, createSalaryAdjustment, getPayrollSummary, importSiteRows, listAdvances, OperationsRequestError, recordAdvance, recoverAdvance, requireAdmin, saveEmployee, saveGuard, saveSite } from "./operations.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, "..");
@@ -169,22 +170,27 @@ export function createApp({
     }
   });
 
+  app.post("/api/operations/records", operationsLimiter, async (req, res, next) => {
+    if (!database) return res.status(503).json({ error: "Record storage is not configured." });
+    try {
+      const result = req.body?.action === "queue_media"
+        ? await enqueueMediaCleanup(database, req.headers.authorization, req.body)
+        : req.body?.action === "cleanup_media"
+          ? await cleanupMedia(database, req.headers.authorization, req.body)
+          : await manageRecord(database, req.headers.authorization, req.body);
+      return res.json(result);
+    } catch (error) {
+      if (error instanceof OperationsRequestError) return res.status(error.status).json({ error: error.message, ...(error.details ? { details: error.details } : {}) });
+      return next(error);
+    }
+  });
+
   app.post("/api/operations/sites", operationsLimiter, async (req, res, next) => {
     if (!database) return res.status(503).json({ error: "Operations storage is not configured." });
     try {
       const actorId = await requireAdmin(database, req.headers.authorization);
+      if (req.body?.action === "delete") return res.json(await manageRecord(database, req.headers.authorization, { module: "sites", id: req.body.site_id, action: "delete", confirmation: req.body.confirmation }));
       if (req.body?.action === "save") return res.json(await saveSite(database, req.body, actorId));
-      if (req.body?.action === "delete") {
-        const siteId = Number(req.body.site_id);
-        if (!Number.isSafeInteger(siteId) || siteId < 1) return res.status(400).json({ error: "Site ID is invalid." });
-        const { data, error } = await database.rpc("delete_site_if_unassigned", { p_site_id: siteId, p_actor_id: actorId });
-        if (error) {
-          if (/history|must be deactivated/i.test(error.message || "")) return res.status(409).json({ error: "This site has assignment or financial history. Deactivate it to preserve those records." });
-          return res.status(500).json({ error: "Site could not be deleted safely." });
-        }
-        if (!data) return res.status(404).json({ error: "Site was not found." });
-        return res.json({ ok: true, site_id: siteId });
-      }
       return res.status(400).json({ error: "Unknown site operation." });
     } catch (error) {
       if (error instanceof OperationsRequestError) return res.status(error.status).json({ error: error.message, ...(error.details ? { details: error.details } : {}) });
@@ -208,21 +214,8 @@ export function createApp({
     if (!database) return res.status(503).json({ error: "Operations storage is not configured." });
     try {
       const actorId = await requireAdmin(database, req.headers.authorization);
+      if (req.body?.action === "delete") return res.json(await manageRecord(database, req.headers.authorization, { module: (req.body.employee_type === "supervisor" ? "supervisors" : req.body.employee_type === "field_officer" ? "fieldOfficers" : ""), id: req.body.employee_id, action: "delete", confirmation: req.body.confirmation }));
       if (req.body?.action === "save") return res.json(await saveEmployee(database, req.body, actorId));
-      if (req.body?.action === "delete") {
-        const employeeType = req.body.employee_type;
-        const employeeId = Number(req.body.employee_id);
-        if (!new Set(["supervisor", "field_officer"]).has(employeeType) || !Number.isSafeInteger(employeeId) || employeeId < 1) {
-          return res.status(400).json({ error: "Employee reference is invalid." });
-        }
-        const { data, error } = await database.rpc("delete_employee_if_unreferenced", { p_employee_type: employeeType, p_employee_id: employeeId, p_actor_id: actorId });
-        if (error) {
-          if (/history|deactivated/i.test(error.message || "")) return res.status(409).json({ error: "This employee has assignment, payroll, or advance history. Deactivate the record to preserve it." });
-          return res.status(500).json({ error: "Employee record could not be deleted safely." });
-        }
-        if (!data) return res.status(404).json({ error: "Employee record was not found." });
-        return res.json({ ok: true, employee_id: employeeId });
-      }
       return res.status(400).json({ error: "Unknown employee operation." });
     } catch (error) {
       if (error instanceof OperationsRequestError) return res.status(error.status).json({ error: error.message, ...(error.details ? { details: error.details } : {}) });
@@ -234,12 +227,8 @@ export function createApp({
     if (!database) return res.status(503).json({ error: "Operations storage is not configured." });
     try {
       const actorId = await requireAdmin(database, req.headers.authorization);
+      if (req.body?.action === "delete") return res.json(await manageRecord(database, req.headers.authorization, { module: "guards", id: req.body.guard_id, action: "delete", confirmation: req.body.confirmation }));
       if (req.body?.action === "save") return res.json(await saveGuard(database, req.body, actorId));
-      if (req.body?.action === "delete") {
-        const deleted = await deleteGuard(database, req.body.guard_id, actorId);
-        if (!deleted) return res.status(404).json({ error: "Guard record was not found." });
-        return res.json({ ok: true, guard_id: Number(req.body.guard_id) });
-      }
       return res.status(400).json({ error: "Unknown guard operation." });
     } catch (error) {
       if (error instanceof OperationsRequestError) return res.status(error.status).json({ error: error.message, ...(error.details ? { details: error.details } : {}) });

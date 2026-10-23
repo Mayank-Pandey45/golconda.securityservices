@@ -1,5 +1,8 @@
+import RecordActions, { RecordFilter } from "./RecordActions.jsx";
+import { matchesRecordState } from "../../shared/recordLifecycle.js";
+import { queueOrphan } from "./recordClient.js";
 import React, { useEffect, useMemo, useState } from "react";
-import { ArrowDownToLine, Camera, Check, Pencil, Plus, RefreshCw, Trash2, X } from "lucide-react";
+import { ArrowDownToLine, Camera, Check, Pencil, Plus, RefreshCw, X } from "lucide-react";
 import { apiUrl, readApiResponse } from "../api.js";
 import { downloadFile } from "../guardSpreadsheet.js";
 import { supabase } from "../supabase.js";
@@ -51,6 +54,8 @@ function CheckList({ title, options, selected, onChange, hint }) {
 
 export default function PeopleManagement({ employeeType, items = [], sites = [], guards = [], onRefresh, onMetricsRefresh }) {
   const isSupervisor = employeeType === "supervisor";
+  const [recordFilter, setRecordFilter] = useState("all");
+  const recordModule = isSupervisor ? "supervisors" : "fieldOfficers";
   const title = isSupervisor ? "Supervisors" : "Field Officers";
   const otherType = isSupervisor ? "field_officer" : "supervisor";
   const relationTable = "supervisor_reporting";
@@ -70,11 +75,11 @@ export default function PeopleManagement({ employeeType, items = [], sites = [],
     let active = true;
     async function loadRelations() {
       const peopleTable = isSupervisor ? "field_officers" : "supervisors";
-      const guardQuery = guards.length ? Promise.resolve({ data: guards, error: null }) : supabase.from("guards").select("id,full_name,employee_code,status").order("full_name");
+      const guardQuery = guards.length ? Promise.resolve({ data: guards, error: null }) : supabase.from("guards").select("id,full_name,employee_code,status,archived_at").order("full_name");
       const [comp, rel, other, guardRecords, guardAssignments] = await Promise.all([
         supabase.from("employee_compensation").select("*").order("effective_from", { ascending: false }),
         supabase.from(relationTable).select("id,supervisor_id,field_officer_id,valid_from,valid_to"),
-        supabase.from(peopleTable).select("id,full_name,employee_code,phone,status").order("full_name"),
+        supabase.from(peopleTable).select("id,full_name,employee_code,phone,status,archived_at").order("full_name"),
         guardQuery,
         supabase.from("guard_site_assignments").select("guard_id,site_id,valid_to"),
       ]);
@@ -126,9 +131,10 @@ export default function PeopleManagement({ employeeType, items = [], sites = [],
   }), [items, compensationByPerson, reporting, isSupervisor, otherPeople, allGuards]);
 
   const visible = useMemo(() => records.filter(person => {
+    if (!matchesRecordState(recordModule, person, recordFilter)) return false;
     const matchesSearch = `${person.employee_code || ""} ${person.full_name || ""} ${person.phone || ""} ${person.email || ""} ${person.site_records?.map(site => site.title).join(" ") || ""}`.toLowerCase().includes(filters.search.toLowerCase());
     return matchesSearch && (!filters.status || person.status === filters.status);
-  }), [records, filters]);
+  }), [records, filters, recordFilter, recordModule]);
 
   function resetForm() { setForm(initialForm); setPhotoFile(null); setEditingId(null); }
 
@@ -169,30 +175,17 @@ export default function PeopleManagement({ employeeType, items = [], sites = [],
       const person = { ...form, photo_storage_path: photoPath, gross_monthly_salary: form.gross_monthly_salary || null };
       const result = await postPeople({ action: "save", employee_type: employeeType, employee_id: editingId, person, site_ids: form.site_ids.map(Number), reporting_ids: form.reporting_ids.map(Number) });
       persisted = true;
-      if (form.photo_storage_path && form.photo_storage_path !== photoPath) {
-        const cleanup = await supabase.storage.from(BUCKET).remove([form.photo_storage_path]);
-        if (cleanup.error) setMessage("The employee record was saved, but its previous private photo could not be removed.");
-      }
+      // Previous photos remain private and are queued by the database.
       resetForm(); await onRefresh(); await onMetricsRefresh();
       setMessage(`Employee profile saved (record ${result.employee_id}).`);
     } catch (error) {
-      if (uploadedPath && !persisted) await supabase.storage.from(BUCKET).remove([uploadedPath]);
-      setMessage(error.message);
+      const orphanMessage = uploadedPath && !persisted ? await queueOrphan(BUCKET, uploadedPath) : "";
+      setMessage(error.message + " " + orphanMessage);
     } finally { setBusy(false); }
   }
 
-  async function removePerson(person) {
-    if (!window.confirm(`Delete ${person.full_name}? Records with assignments, compensation, or advances must be deactivated instead.`)) return;
-    setBusy(true); setMessage("");
-    try {
-      await postPeople({ action: "delete", employee_type: employeeType, employee_id: person.id });
-      if (person.photo_storage_path) await supabase.storage.from(BUCKET).remove([person.photo_storage_path]);
-      await onRefresh(); await onMetricsRefresh(); setMessage("Employee record deleted.");
-    } catch (error) { setMessage(error.message); }
-    finally { setBusy(false); }
-  }
 
-  const reportingOptions = otherPeople.filter(person => person.status === "active");
+  const reportingOptions = otherPeople.filter(person => !person.archived_at && person.status === "active");
 
   return <div className="people-management">
     <form className="gss-admin-form people-editor" onSubmit={save}>
@@ -223,7 +216,7 @@ export default function PeopleManagement({ employeeType, items = [], sites = [],
     </form>
 
     {message && <p className="gss-admin-message" role="status">{message}</p>}
-    <div className="gss-admin-list-heading"><h3>{title} · {items.length}</h3><div className="people-list-actions"><input className="gss-admin-search" type="search" value={filters.search} onChange={event => setFilters({ ...filters, search: event.target.value })} placeholder="Search name, code, phone, site" aria-label={`Search ${title.toLowerCase()}`}/><select aria-label="Filter by status" value={filters.status} onChange={event => setFilters({ ...filters, status: event.target.value })}><option value="">All statuses</option><option value="active">Active</option><option value="inactive">Inactive</option><option value="on_leave">On leave</option><option value="relieved">Relieved</option></select><button className="gss-admin-secondary" type="button" onClick={onRefresh}><RefreshCw size={15}/> Refresh</button><button className="gss-admin-secondary" type="button" onClick={() => exportPeople(visible, employeeType)}><ArrowDownToLine size={15}/> Export CSV</button></div></div>
+    <RecordFilter value={recordFilter} onChange={setRecordFilter}/><div className="gss-admin-list-heading"><h3>{title} · {items.length}</h3><div className="people-list-actions"><input className="gss-admin-search" type="search" value={filters.search} onChange={event => setFilters({ ...filters, search: event.target.value })} placeholder="Search name, code, phone, site" aria-label={`Search ${title.toLowerCase()}`}/><select aria-label="Filter by status" value={filters.status} onChange={event => setFilters({ ...filters, status: event.target.value })}><option value="">All statuses</option><option value="active">Active</option><option value="inactive">Inactive</option><option value="on_leave">On leave</option><option value="relieved">Relieved</option></select><button className="gss-admin-secondary" type="button" onClick={onRefresh}><RefreshCw size={15}/> Refresh</button><button className="gss-admin-secondary" type="button" onClick={() => exportPeople(visible, employeeType)}><ArrowDownToLine size={15}/> Export CSV</button></div></div>
     {!visible.length ? <p className="gss-admin-empty">No {title.toLowerCase()} match your search.</p> : <div className="gss-admin-items people-cards">{visible.map(person => <article className="gss-admin-item people-card" key={person.id}>
       <div className="people-avatar">{signedPhotos[person.id] ? <img src={signedPhotos[person.id]} alt={`${person.full_name} private profile`}/> : <Camera size={18}/>}</div>
       <div className="gss-admin-item-copy"><div className="people-name-line"><strong>{person.full_name}</strong><span className={`people-status ${person.status}`}>{String(person.status).replaceAll("_", " ")}</span></div>
@@ -233,7 +226,7 @@ export default function PeopleManagement({ employeeType, items = [], sites = [],
           {person.date_of_birth && <span><b>Date of birth:</b> {person.date_of_birth}</span>}{person.residential_address && <span><b>Address:</b> {person.residential_address}</span>}
         </div>
       </div>
-      <div className="gss-admin-item-actions"><button type="button" onClick={() => editPerson(person)}><Pencil size={15}/> Edit</button><button type="button" className="danger" disabled={busy} onClick={() => removePerson(person)}><Trash2 size={15}/> Delete</button></div>
+      <div className="gss-admin-item-actions"><button type="button" disabled={Boolean(person.archived_at)} onClick={() => editPerson(person)}><Pencil size={15}/> Edit</button><RecordActions module={recordModule} item={person} onChanged={async () => { await onRefresh(); await onMetricsRefresh(); }} onEditingDeleted={() => { if (editingId === person.id) resetForm(); }}/></div>
     </article>)}</div>}
     <p className="people-history-note">Deactivated and relieved staff remain in the database with historical assignments. Deletion is available only if the record has no assignment, compensation, or advance history.</p>
   </div>;

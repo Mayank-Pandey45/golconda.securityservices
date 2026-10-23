@@ -9,7 +9,8 @@ function safeApiText(value) {
   return value.replace(/[\x00-\x1f\x7f]/g, " ").trim().slice(0, 300);
 }
 
-export async function readApiResponse(response, fallback = "The request could not be completed.") {
+export async function readApiResponse(response, fallback) {
+  fallback ||= ({ 400: "Review the form values and try again.", 401: "Your session expired. Sign in again.", 403: "Your account cannot perform this administrator action.", 409: "This record is linked or retained. Archive or deactivate it instead.", 500: "The action could not be saved. Refresh before retrying.", 503: "This action is temporarily unavailable. Check the approved database migration." })[response.status] || "The request could not be completed.";
   const result = await response.json().catch(() => null);
   const structured = result && typeof result === "object" && !Array.isArray(result);
   if (!response.ok) {
@@ -19,7 +20,7 @@ export async function readApiResponse(response, fallback = "The request could no
     }) : [];
     const matches = structured && Array.isArray(result.details?.matches) ? result.details.matches.slice(0, 5).map(match => safeApiText(match?.message)) : [];
     const message = (structured && safeApiText(result.error)) || (response.status === 404 ? "API route not found. The server deployment may need updating." : fallback);
-    const error = new Error(`HTTP ${response.status}: ${[message, ...rows, ...matches].filter(Boolean).join(" ")}`);
+    const error = new Error(`HTTP ${response.status}: ${[message, safeApiText(result?.details?.reason), ...rows, ...matches].filter(Boolean).join(" ")}`);
     error.status = response.status;
     throw error;
   }

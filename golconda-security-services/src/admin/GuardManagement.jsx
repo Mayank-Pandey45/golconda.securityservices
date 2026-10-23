@@ -1,5 +1,8 @@
+import RecordActions, { RecordFilter } from "./RecordActions.jsx";
+import { matchesRecordState } from "../../shared/recordLifecycle.js";
+import { queueOrphan } from "./recordClient.js";
 import React, { useEffect, useMemo, useState } from "react";
-import { Camera, Download, FileSpreadsheet, FileText, Pencil, Plus, RefreshCw, Trash2, Upload, X } from "lucide-react";
+import { Camera, Download, FileSpreadsheet, FileText, Pencil, Plus, RefreshCw, Upload, X } from "lucide-react";
 import { supabase } from "../supabase";
 import { apiUrl, readApiResponse } from "../api";
 import { normalizeGuardRow } from "../../shared/guardValidation.js";
@@ -90,6 +93,7 @@ async function fetchAllRows(table, columns = "*") {
 
 export default function GuardManagement({ items = [], sites = [], search = "", onSearchChange, onRefresh, onMetricsRefresh }) {
   const [filters, setFilters] = useState({ status: "", designation: "", site_id: "" });
+  const [recordFilter, setRecordFilter] = useState("all");
   const [form, setForm] = useState(initialForm);
   const [editingId, setEditingId] = useState(null);
   const [message, setMessage] = useState("");
@@ -126,7 +130,7 @@ export default function GuardManagement({ items = [], sites = [], search = "", o
     return result;
   }, [compensation]);
 
-  const visibleItems = useMemo(() => items.filter(item => rowMatchesFilters(item, search, filters)), [items, search, filters]);
+  const visibleItems = useMemo(() => items.filter(item => matchesRecordState("guards", item, recordFilter) && rowMatchesFilters(item, search, filters)), [items, search, filters, recordFilter]);
   const designations = useMemo(() => [...new Set(items.map(item => item.designation).filter(Boolean))].sort((a, b) => a.localeCompare(b)), [items]);
   const counts = useMemo(() => ({
     total: items.length,
@@ -211,7 +215,7 @@ export default function GuardManagement({ items = [], sites = [], search = "", o
       await postGuard({ action: "save", guard_id: editingId, person, site_ids: form.site_ids.map(Number) });
       saved = true;
       const previousPhotoPath = items.find(item => item.id === editingId)?.photo_storage_path;
-      if (previousPhotoPath && previousPhotoPath !== photoPath) await supabase.storage.from(employeeBucket).remove([previousPhotoPath]);
+      // Replaced private photos are queued by the database; never removed inline.
       resetForm();
       await onRefresh();
       await onMetricsRefresh();
@@ -220,23 +224,12 @@ export default function GuardManagement({ items = [], sites = [], search = "", o
       setMessage(`Save failed: ${error.message}`);
     } finally {
       setUploadingPhoto(false);
-      if (uploadedPath && !saved) await supabase.storage.from(employeeBucket).remove([uploadedPath]);
+      const orphanMessage = uploadedPath && !saved ? await queueOrphan(employeeBucket, uploadedPath) : "";
+      if (uploadedPath && !saved) setMessage(previous => previous + " " + orphanMessage);
       setBusy(false);
     }
   }
 
-  async function deleteGuard(guard) {
-    if (!window.confirm(`Delete the guard record for ${guard.full_name}? This cannot be undone.`)) return;
-    setBusy(true);
-    try {
-      await postGuard({ action: "delete", guard_id: guard.id });
-      if (guard.photo_storage_path) await supabase.storage.from(employeeBucket).remove([guard.photo_storage_path]);
-      setMessage("Guard record deleted.");
-      await onRefresh();
-      await onMetricsRefresh();
-    } catch (error) { setMessage(error.message); }
-    setBusy(false);
-  }
 
   async function handleImportFile(file) {
     setImportFile(file || null);
@@ -371,13 +364,13 @@ export default function GuardManagement({ items = [], sites = [], search = "", o
 
     {message && <p className="gss-admin-message" role="status">{message}</p>}
     <div className="guard-list-toolbar"><div className="guard-module-heading"><div><h3>Guard directory</h3><p>{visibleItems.length} shown · {items.length} total</p></div><button type="button" className="gss-admin-secondary" onClick={onRefresh} disabled={busy}><RefreshCw size={15}/> Refresh from database</button></div>
-      <div className="guard-filters"><input className="gss-admin-search" type="search" value={search} onChange={event => onSearchChange(event.target.value)} placeholder="Search name, phone, designation, site" aria-label="Search guards"/><select value={filters.status} onChange={event => setFilters({ ...filters, status: event.target.value })} aria-label="Filter by guard status"><option value="">All statuses</option><option value="active">Active</option><option value="inactive">Inactive</option><option value="on_leave">On leave</option><option value="relieved">Relieved</option></select><select value={filters.designation} onChange={event => setFilters({ ...filters, designation: event.target.value })} aria-label="Filter by designation"><option value="">All designations</option>{designations.map(value => <option key={value}>{value}</option>)}</select><select value={filters.site_id} onChange={event => setFilters({ ...filters, site_id: event.target.value })} aria-label="Filter by assigned site"><option value="">All sites</option>{sites.map(site => <option key={site.id} value={site.id}>{site.title}</option>)}</select></div>
+      <RecordFilter value={recordFilter} onChange={setRecordFilter}/><div className="guard-filters"><input className="gss-admin-search" type="search" value={search} onChange={event => onSearchChange(event.target.value)} placeholder="Search name, phone, designation, site" aria-label="Search guards"/><select value={filters.status} onChange={event => setFilters({ ...filters, status: event.target.value })} aria-label="Filter by guard status"><option value="">All statuses</option><option value="active">Active</option><option value="inactive">Inactive</option><option value="on_leave">On leave</option><option value="relieved">Relieved</option></select><select value={filters.designation} onChange={event => setFilters({ ...filters, designation: event.target.value })} aria-label="Filter by designation"><option value="">All designations</option>{designations.map(value => <option key={value}>{value}</option>)}</select><select value={filters.site_id} onChange={event => setFilters({ ...filters, site_id: event.target.value })} aria-label="Filter by assigned site"><option value="">All sites</option>{sites.filter(site => !site.archived_at && site.status !== "inactive").map(site => <option key={site.id} value={site.id}>{site.title}</option>)}</select></div>
     </div>
     {visibleItems.length === 0 ? <p className="gss-admin-empty">No guards match the selected filters.</p> : <div className="gss-admin-items">{visibleItems.map(item => {
       const currentSalary = compensationByGuard.get(String(item.id));
       return <article className="gss-admin-item" key={item.id}>
         <div className="gss-admin-item-copy"><div className="people-name-line">{signedPhotos[item.id] ? <img className="guard-profile-photo" src={signedPhotos[item.id]} alt={`${item.full_name} private profile`}/> : <span className="guard-profile-photo-empty"><Camera size={17}/></span>}<strong>{item.full_name}</strong><span className={`people-status ${item.status}`}>{statusLabel(item.status)}</span></div><p>{item.employee_code || "No employee code"} · {item.designation}</p><div className="site-details"><span><b>Phone:</b> {item.phone}</span><span><b>Email:</b> {item.email || "—"}</span><span><b>Sites:</b> {item.site_records?.map(site => site.title).join(", ") || "Unassigned"}</span><span><b>Joined:</b> {item.joining_date || "—"}</span><span><b>End date:</b> {item.employment_end_date || "—"}</span>{item.date_of_birth && <span><b>Date of birth:</b> {item.date_of_birth}</span>}{item.residential_address && <span><b>Address:</b> {item.residential_address}</span>}</div><div className="site-details guard-private-details"><span><b>Configured pay:</b> {formatSalary(item.salary_amount, item.salary_frequency)}</span><span><b>Payroll monthly gross:</b> {currentSalary ? formatSalary(currentSalary.gross_monthly_salary, "monthly") : "Not configured"}</span><span><b>Effective:</b> {currentSalary?.effective_from || item.salary_effective_date || "—"}</span>{item.salary_notes && <span><b>Private notes:</b> {item.salary_notes}</span>}</div><small>{item.created_at ? `Added: ${new Date(item.created_at).toLocaleDateString()}` : ""}</small></div>
-        <div className="gss-admin-item-actions"><button type="button" onClick={() => startEditing(item)} aria-label={`Edit ${item.full_name}`}><Pencil size={15}/> Edit</button><button type="button" className="danger" onClick={() => deleteGuard(item)} disabled={busy} aria-label={`Delete ${item.full_name}`}><Trash2 size={15}/> Delete</button></div>
+        <div className="gss-admin-item-actions"><button type="button" disabled={Boolean(item.archived_at)} onClick={() => startEditing(item)} aria-label={`Edit ${item.full_name}`}><Pencil size={15}/> Edit</button><RecordActions module={"guards"} item={item} onChanged={async () => { await onRefresh(); await onMetricsRefresh(); }} onEditingDeleted={() => { if (editingId === item.id) resetForm(); }}/></div>
       </article>;
     })}</div>}
   </div>;

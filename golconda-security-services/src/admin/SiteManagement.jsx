@@ -1,5 +1,7 @@
+import RecordActions, { RecordFilter } from "./RecordActions.jsx";
+import { matchesRecordState } from "../../shared/recordLifecycle.js";
 import React, { useMemo, useState } from "react";
-import { ArrowDownToLine, Building2, Check, FileSpreadsheet, Pencil, Plus, RefreshCw, Trash2, Upload, X } from "lucide-react";
+import { ArrowDownToLine, Building2, Check, FileSpreadsheet, Pencil, Plus, RefreshCw, Upload, X } from "lucide-react";
 import { apiUrl, readApiResponse } from "../api.js";
 import { downloadFile } from "../guardSpreadsheet.js";
 import { parseSiteImportFile, previewSiteImportRows, siteImportTemplateCsv, siteRecordsToCsv } from "../siteSpreadsheet.js";
@@ -42,6 +44,7 @@ function AssignmentChecks({ title, options, value, onChange, label }) {
 
 export default function SiteManagement({ items = [], guards = [], supervisors = [], fieldOfficers = [], onRefresh, onMetricsRefresh }) {
   const [form, setForm] = useState(emptyForm);
+  const [recordFilter, setRecordFilter] = useState("all");
   const [editingId, setEditingId] = useState(null);
   const [search, setSearch] = useState("");
   const [message, setMessage] = useState("");
@@ -49,7 +52,7 @@ export default function SiteManagement({ items = [], guards = [], supervisors = 
   const [selectedFile, setSelectedFile] = useState(null);
   const [preview, setPreview] = useState(null);
 
-  const visibleSites = useMemo(() => items.filter(site => `${site.site_code || ""} ${site.title || ""} ${site.service_taken || ""}`.toLowerCase().includes(search.toLowerCase())), [items, search]);
+  const visibleSites = useMemo(() => items.filter(site => matchesRecordState("sites", site, recordFilter) && `${site.site_code || ""} ${site.title || ""} ${site.service_taken || ""}`.toLowerCase().includes(search.toLowerCase())), [items, search, recordFilter]);
   const previewCounts = preview?.sites.reduce((counts, site) => ({ ...counts, [site.state]: counts[site.state] + 1 }), { create: 0, update: 0 }) || { create: 0, update: 0 };
 
   function resetForm() { setForm(emptyForm); setEditingId(null); }
@@ -86,17 +89,6 @@ export default function SiteManagement({ items = [], guards = [], supervisors = 
     finally { setBusy(false); }
   }
 
-  async function deleteSite(site) {
-    if (!window.confirm(`Delete ${site.title}? A site with active or historical assignments, or financial records, must be deactivated instead.`)) return;
-    setBusy(true); setMessage("");
-    try {
-      await apiPost("/api/operations/sites", { action: "delete", site_id: site.id });
-      if (editingId === site.id) resetForm();
-      await onRefresh(); await onMetricsRefresh();
-      setMessage("Site deleted.");
-    } catch (error) { setMessage(error.message); }
-    finally { setBusy(false); }
-  }
 
   async function readSelectedFile(file) {
     setSelectedFile(file || null); setPreview(null); setMessage("");
@@ -146,9 +138,9 @@ export default function SiteManagement({ items = [], guards = [], supervisors = 
       <label>PF applicability<select value={form.pf_applicable} onChange={event => setForm({ ...form, pf_applicable: event.target.value })}><option value="">Not configured</option><option value="true">Applicable</option><option value="false">Not applicable</option></select></label>
       <label>PF rate (%)<input type="number" min="0" max="100" step="0.0001" value={form.pf_contribution_rate} onChange={event => setForm({ ...form, pf_contribution_rate: event.target.value })}/></label>
       <label className="full">Configuration notes<input maxLength="1000" value={form.payroll_notes} onChange={event => setForm({ ...form, payroll_notes: event.target.value })} placeholder="Add confirmed policy reference or leave blank"/></label>
-      <AssignmentChecks title="Guards" label="guard" options={guards} value={form.guard_ids} onChange={guard_ids => setForm({ ...form, guard_ids })}/>
-      <AssignmentChecks title="Supervisors" label="supervisor" options={supervisors} value={form.supervisor_ids} onChange={supervisor_ids => setForm({ ...form, supervisor_ids })}/>
-      <AssignmentChecks title="Field officers" label="field officer" options={fieldOfficers} value={form.field_officer_ids} onChange={field_officer_ids => setForm({ ...form, field_officer_ids })}/>
+      <AssignmentChecks title="Guards" label="guard" options={guards.filter(person => !person.archived_at && !["inactive","relieved"].includes(person.status))} value={form.guard_ids} onChange={guard_ids => setForm({ ...form, guard_ids })}/>
+      <AssignmentChecks title="Supervisors" label="supervisor" options={supervisors.filter(person => !person.archived_at && !["inactive","relieved"].includes(person.status))} value={form.supervisor_ids} onChange={supervisor_ids => setForm({ ...form, supervisor_ids })}/>
+      <AssignmentChecks title="Field officers" label="field officer" options={fieldOfficers.filter(person => !person.archived_at && !["inactive","relieved"].includes(person.status))} value={form.field_officer_ids} onChange={field_officer_ids => setForm({ ...form, field_officer_ids })}/>
       <div className="gss-admin-form-actions full"><button className="gss-admin-primary" disabled={busy} type="submit">{editingId ? <Check size={15}/> : <Plus size={15}/>} {editingId ? "Save site" : "Create site"}</button>{editingId && <button className="gss-admin-secondary" type="button" onClick={resetForm}><X size={15}/> Cancel edit</button>}</div>
     </form>
 
@@ -169,14 +161,14 @@ export default function SiteManagement({ items = [], guards = [], supervisors = 
 
     {message && <p className="gss-admin-message" role="status">{message}</p>}
     <div className="gss-admin-list-heading"><h3>Sites & deployments · {items.length}</h3><div className="site-list-controls"><input className="gss-admin-search" type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Search code, site or service" aria-label="Search sites"/><button className="gss-admin-secondary" type="button" onClick={onRefresh}><RefreshCw size={15}/> Refresh</button><button className="gss-admin-secondary" type="button" onClick={() => downloadFile(siteRecordsToCsv(items), "golconda-sites.csv", "text/csv;charset=utf-8")}><ArrowDownToLine size={15}/> Export CSV</button></div></div>
-    {!visibleSites.length ? <p className="gss-admin-empty">No sites match your search.</p> : <div className="gss-admin-items site-card-list">{visibleSites.map(site => <article className="gss-admin-item" key={site.id}>
+    <RecordFilter value={recordFilter} onChange={setRecordFilter}/>{!visibleSites.length ? <p className="gss-admin-empty">No sites match your search.</p> : <div className="gss-admin-items site-card-list">{visibleSites.map(site => <article className="gss-admin-item" key={site.id}>
       <div className="gss-admin-item-copy"><div className="site-title-line"><Building2 size={17}/><strong>{site.title}</strong><span className={`site-status ${site.status || "active"}`}>{site.status || "active"}</span></div>
         <p>{site.site_code || "No site code"} · {site.service_taken || "Service unspecified"}</p>
         <div className="site-details"><span><b>Phones:</b> {site.phone_numbers || "None"}</span><span><b>Emails:</b> {site.given_emails || "None"}</span><span><b>Guard billing:</b> {site.security_guard_monthly_billing == null ? "Not configured" : `₹${Number(site.security_guard_monthly_billing).toLocaleString("en-IN")}`}</span><span><b>ASO billing:</b> {site.aso_monthly_billing == null ? "Not configured" : `₹${Number(site.aso_monthly_billing).toLocaleString("en-IN")}`}</span>
           <span><b>Guards:</b> {site.guard_records?.map(person => `${person.full_name} (${person.status})`).join(", ") || "None"}</span><span><b>Supervisors:</b> {site.supervisor_records?.map(person => person.full_name).join(", ") || "None"}</span><span><b>Field officers:</b> {site.field_officer_records?.map(person => person.full_name).join(", ") || "None"}</span>
         </div>
       </div>
-      <div className="gss-admin-item-actions"><button type="button" onClick={() => editSite(site)}><Pencil size={15}/> Edit</button><button type="button" className="danger" disabled={busy} onClick={() => deleteSite(site)}><Trash2 size={15}/> Delete</button></div>
+      <div className="gss-admin-item-actions"><button type="button" disabled={Boolean(site.archived_at)} onClick={() => editSite(site)}><Pencil size={15}/> Edit</button><RecordActions module={"sites"} item={site} onChanged={async () => { await onRefresh(); await onMetricsRefresh(); }} onEditingDeleted={() => { if (editingId === site.id) resetForm(); }}/></div>
     </article>)}</div>}
   </div>;
 }

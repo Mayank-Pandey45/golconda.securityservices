@@ -10,9 +10,9 @@ function response() {
 }
 const request = (url, body = {}) => ({ url, method: "POST", headers: { "content-type": "application/json", authorization: "Bearer retained-token" }, body });
 
-test("one deployable API file forwards all fourteen routes, query strings, bodies and authorization", () => {
+test("one deployable API file forwards all fifteen routes, query strings, bodies and authorization", () => {
   assert.deepEqual(readdirSync(new URL("../api/", import.meta.url)), ["index.js"]);
-  const paths = ["health", "profile", "integrations/sheets-sync", "integrations/telegram", "guards/import", "operations/sites", "operations/site-import", "operations/people", "operations/guards", "operations/advances", "operations/payroll", "contact", "applications", "complaints"];
+  const paths = ["health", "profile", "integrations/sheets-sync", "integrations/telegram", "guards/import", "operations/records", "operations/sites", "operations/site-import", "operations/people", "operations/guards", "operations/advances", "operations/payroll", "contact", "applications", "complaints"];
   const handler = createCatchAllHandler((req, res) => res.json({ url: req.url, body: req.body, authorization: req.headers.authorization }));
   for (const path of paths) {
     const req = request(`/api/${path}?period=2026-10&site_id=1`, { marker: path });
@@ -72,7 +72,7 @@ test('explicit Vercel wildcard rewrite targets one stable function for every nes
   const config = JSON.parse(await readFile(new URL('../vercel.json', import.meta.url), 'utf8'));
   assert.deepEqual(config.rewrites[0], { source: '/api/:path*', destination: '/api/index?__route=:path*' });
   const handler = createCatchAllHandler((req, res) => res.json({ url: req.url, query: req.query, body: req.body, authorization: req.headers.authorization }));
-  for (const path of ['operations/guards', 'operations/sites', 'operations/people', 'operations/site-import', 'operations/advances', 'guards/import', 'integrations/telegram', 'contact', 'applications', 'complaints', 'health', 'profile', 'operations/payroll', 'integrations/sheets-sync']) {
+  for (const path of ['operations/records', 'operations/guards', 'operations/sites', 'operations/people', 'operations/site-import', 'operations/advances', 'guards/import', 'integrations/telegram', 'contact', 'applications', 'complaints', 'health', 'profile', 'operations/payroll', 'integrations/sheets-sync']) {
     const isGet = ['health', 'profile', 'operations/payroll', 'integrations/sheets-sync'].includes(path);
     for (const originalUrl of ['/api/' + path + '?site_id=2', '/api/index?__route=' + encodeURIComponent(path) + '&site_id=2']) {
       const req = { ...request(originalUrl, { action: 'save' }), method: isGet ? 'GET' : 'POST', query: { __route: path, site_id: '2' } };
@@ -96,7 +96,7 @@ test('rewritten guard, site, people and import routes retain authentication and 
     const server = createServer((req, res) => { const url = new URL(req.url, 'http://local'); req.url = '/api/index?__route=' + url.pathname.slice(5); req.query = { __route: url.pathname.slice(5) }; req.body = {}; handler(req, res); });
     await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
     try {
-      for (const path of ['operations/guards', 'operations/sites', 'operations/people', 'operations/site-import', 'guards/import']) {
+      for (const path of ['operations/records', 'operations/guards', 'operations/sites', 'operations/people', 'operations/site-import', 'guards/import']) {
         for (const token of ['', 'invalid-token', 'valid-token']) {
           const response = await fetch('http://127.0.0.1:' + server.address().port + '/api/' + path, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) }, body: '{}' });
           assert.equal(response.status, token !== 'valid-token' ? 401 : admin ? 400 : 403, path);

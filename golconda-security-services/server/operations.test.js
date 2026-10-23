@@ -28,7 +28,7 @@ function fakeDatabase({ admin = true, people = {} } = {}) {
       };
       return query;
     },
-    async rpc(name, args) { calls.push({ name, args }); return { data: name === "save_site_with_assignments" ? 5 : name === "save_guard_profile" ? 8 : { sites_created: 1, sites_updated: 0, guards_created: 1, guards_updated: 0, supervisors_created: 0, supervisors_updated: 0, field_officers_created: 0, field_officers_updated: 0, relationships_added: 1, skipped: 0, failed: 0 }, error: null }; },
+    async rpc(name, args) { calls.push({ name, args }); return { data: name === "save_site_with_assignments" ? 5 : name === "save_guard_profile" ? 8 : name === "save_employee_profile" ? 9 : { sites_created: 1, sites_updated: 0, guards_created: 1, guards_updated: 0, supervisors_created: 0, supervisors_updated: 0, field_officers_created: 0, field_officers_updated: 0, relationships_added: 1, skipped: 0, failed: 0 }, error: null }; },
   };
   return database;
 }

@@ -1,3 +1,8 @@
+import RetainedHistory from "./admin/RetainedHistory.jsx";
+import RecordActions, { RecordFilter } from "./admin/RecordActions.jsx";
+import MediaCleanup from "./admin/MediaCleanup.jsx";
+import { recordRequest } from "./admin/recordClient.js";
+import { matchesRecordState } from "../shared/recordLifecycle.js";
 import React, { useEffect, useState } from "react";
 import { supabase, supabaseError } from "./supabase";
 import { apiUrl, readApiResponse } from "./api";
@@ -74,6 +79,7 @@ function App() {
   const [adminTab, setAdminTab] = useState("overview");
   const [dashboardMetrics, setDashboardMetrics] = useState(null);
   const [adminSearch, setAdminSearch] = useState("");
+  const [recordFilter, setRecordFilter] = useState("all");
   
   // Admin Data State
   const [adminItems, setAdminItems] = useState({
@@ -107,6 +113,8 @@ function App() {
   });
 
   const adminTabsConfig = {
+    retainedHistory: { title: "Retained operational history", description: "Read-only assignments, financial entries, audit records and integration delivery history." },
+    mediaCleanup: { title: "Private media cleanup", description: "Review unreferenced private files before explicitly confirming physical removal." },
     overview: { title: "Dashboard Overview", description: "Summary metrics of Golconda Security Services operations." },
     events: { title: "Manage Events", description: "Add, modify, or remove upcoming events and awareness programs." },
     notifications: { title: "Manage Notifications", description: "Publish announcements and safety updates." },
@@ -131,9 +139,9 @@ function App() {
         return;
       }
       const [services, events, notifications] = await Promise.all([
-        supabase.from("services").select("id,title,description,image_url,tag,icon_key,sort_order,created_at").order("sort_order", { ascending: true }).order("created_at", { ascending: true }),
-        supabase.from("events").select("id,title,description,event_date,image_url,event_type,display_status,sort_order,created_at").order("sort_order", { ascending: true }).order("created_at", { ascending: false }),
-        supabase.from("notifications").select("id,title,message,notification_type,notification_severity,display_date,sort_order,created_at,starts_at,expires_at,is_active,is_published,dismissible,button_label,button_url").eq("is_published", true).eq("is_active", true).order("sort_order", { ascending: true }).order("created_at", { ascending: false })
+        supabase.from("services").select("id,title,description,image_url,tag,icon_key,sort_order,created_at").is("archived_at", null).eq("is_active", true).order("sort_order", { ascending: true }).order("created_at", { ascending: true }),
+        supabase.from("events").select("id,title,description,event_date,image_url,event_type,display_status,sort_order,created_at").is("archived_at", null).eq("is_active", true).order("sort_order", { ascending: true }).order("created_at", { ascending: false }),
+        supabase.from("notifications").select("id,title,message,notification_type,notification_severity,display_date,sort_order,created_at,starts_at,expires_at,is_active,is_published,dismissible,button_label,button_url").is("archived_at", null).eq("is_published", true).eq("is_active", true).order("sort_order", { ascending: true }).order("created_at", { ascending: false })
       ]);
       if (!active) return;
       const error = services.error || events.error || notifications.error;
@@ -198,6 +206,7 @@ function App() {
 
   useEffect(() => {
     if (!adminMode) return;
+    if (["mediaCleanup","retainedHistory"].includes(adminTab)) return;
     if (adminTab === "overview") loadDashboardMetrics();
     else if (adminTab === "advances") {
       Promise.all([loadAdminItems("guards"), loadAdminItems("supervisors"), loadAdminItems("fieldOfficers"), loadAdminItems("sites")]);
@@ -258,7 +267,7 @@ function App() {
     } else if (tabKey === "guards") {
       const [guards, sites, assignments] = await Promise.all([
         fetchAllSupabaseRows("guards"),
-        fetchAllSupabaseRows("sites", "id,title,site_code"),
+        fetchAllSupabaseRows("sites", "id,title,site_code,status,archived_at"),
         fetchAllSupabaseRows("guard_site_assignments", "id,guard_id,site_id,valid_from,valid_to")
       ]);
       const failed = [guards, sites, assignments].find(item => item.error);
@@ -274,7 +283,7 @@ function App() {
       const assignmentTable = isSupervisor ? "supervisor_site_assignments" : "field_officer_site_assignments";
       const relationKey = isSupervisor ? "supervisor_id" : "field_officer_id";
       const [people, sites, assignments] = await Promise.all([
-        fetchAllSupabaseRows(table), fetchAllSupabaseRows("sites", "id,title,site_code"),
+        fetchAllSupabaseRows(table), fetchAllSupabaseRows("sites", "id,title,site_code,status,archived_at"),
         fetchAllSupabaseRows(assignmentTable, `id,${relationKey},site_id,valid_from,valid_to`)
       ]);
       const failed = [people, sites, assignments].find(item => item.error);
@@ -397,15 +406,8 @@ function App() {
       };
     }
 
-    const query = supabase.from(tableName);
-    const { error } = editingId
-      ? await query.update(payload).eq("id", editingId)
-      : await query.insert(payload);
-
-    if (error) {
-      setAdminMessage(`Save failed: ${error.message}`);
-      return;
-    }
+    try { await recordRequest({ module: adminTab, id: editingId, action: "save", patch: payload }); }
+    catch (error) { setAdminMessage("Save failed: " + error.message); return; }
     const successMessage = editingId ? "Changes saved successfully." : "Item added successfully.";
     resetItemForm();
     await loadAdminItems(adminTab);
@@ -413,32 +415,7 @@ function App() {
     setAdminMessage(successMessage);
   }
 
-  async function deleteAdminItem(item, tabKey) {
-    if (!window.confirm(`Delete item? This cannot be undone.`)) return;
-    const tableName = ({ profileDocs: "profile_docs", contactSubmissions: "contact_submissions", jobApplications: "job_applications" })[tabKey] || tabKey;
-    const { error } = await supabase.from(tableName).delete().eq("id", item.id);
-    if (error) setAdminMessage(`Delete failed: ${error.message}`);
-    else {
-      await loadAdminItems(tabKey);
-      await loadDashboardMetrics();
-      setAdminMessage("Item deleted successfully.");
-    }
-  }
 
-  async function toggleComplaintStatus(complaint) {
-    const status = complaint.status === "resolved" ? "pending" : "resolved";
-    const { error } = await supabase.from("complaints").update({
-      status,
-      resolved_at: status === "resolved" ? new Date().toISOString() : null,
-      updated_at: new Date().toISOString(),
-    }).eq("id", complaint.id);
-    if (error) setAdminMessage(`Complaint update failed: ${error.message}`);
-    else {
-      await loadAdminItems("complaints");
-      await loadDashboardMetrics();
-      setAdminMessage(`Complaint marked ${status}.`);
-    }
-  }
 
   async function handleAdminLogout() {
     await supabase?.auth.signOut();
@@ -522,7 +499,7 @@ function App() {
   if (adminMode) {
     const currentItems = adminItems[adminTab] || [];
     const query = adminSearch.trim().toLowerCase();
-    const visibleItems = query ? currentItems.filter(item => Object.values(item).some(value => String(value ?? "").toLowerCase().includes(query))) : currentItems;
+    const visibleItems = currentItems.filter(item => matchesRecordState(adminTab, item, recordFilter) && (!query || Object.values(item).some(value => String(value ?? "").toLowerCase().includes(query))));
     const totalGuardsCount = dashboardMetrics?.guards ?? "—";
     const totalSitesCount = dashboardMetrics?.sites ?? "—";
     const metric = (key) => dashboardMetrics?.[key] ?? "—";
@@ -614,6 +591,8 @@ function App() {
           <button className={adminTab === "supervisors" ? "active" : ""} onClick={() => { setAdminTab("supervisors"); resetItemForm(); }}><UserRound/><span><small>Management</small><strong>Supervisors</strong><b>{metric("supervisors")} Records</b></span></button>
           <button className={adminTab === "fieldOfficers" ? "active" : ""} onClick={() => { setAdminTab("fieldOfficers"); resetItemForm(); }}><UserRound/><span><small>Management</small><strong>Field Officers</strong><b>{metric("field_officers")} Records</b></span></button>
           <button className={adminTab === "advances" ? "active" : ""} onClick={() => { setAdminTab("advances"); resetItemForm(); }}><FileText/><span><small>Payroll</small><strong>Advances</strong><b>{metric("advances")} Records</b></span></button>
+          <button className={adminTab === "retainedHistory" ? "active" : ""} onClick={() => { setAdminTab("retainedHistory"); resetItemForm(); }}><FileText/><span><small>Retention</small><strong>History</strong></span></button>
+          <button className={adminTab === "mediaCleanup" ? "active" : ""} onClick={() => { setAdminTab("mediaCleanup"); resetItemForm(); }}><FileText/><span><small>Company Vault</small><strong>File Cleanup</strong></span></button>
           <button className={adminTab === "profileDocs" ? "active" : ""} onClick={() => { setAdminTab("profileDocs"); resetItemForm(); }}><FileText/><span><small>Company Vault</small><strong>Profile Docs</strong><b>{metric("profile_docs")} Files</b></span></button>
           <button className={adminTab === "complaints" ? "active" : ""} onClick={() => { setAdminTab("complaints"); resetItemForm(); }}><AlertCircle/><span><small>Client & Staff</small><strong>Complaints</strong><b>{metric("complaints")} Logged</b></span></button>
           <button className={adminTab === "events" ? "active" : ""} onClick={() => { setAdminTab("events"); resetItemForm(); }}><CalendarDays/><span><small>Schedule</small><strong>Events</strong><b>{metric("events")} Items</b></span></button>
@@ -716,6 +695,8 @@ function App() {
 
           {adminMessage && <p className="gss-admin-message" role="status">{adminMessage}</p>}
 
+          {adminTab === "retainedHistory" && <RetainedHistory/>}
+          {adminTab === "mediaCleanup" && <MediaCleanup/>}
           {adminTab === "guards" && <GuardManagement
             items={adminItems.guards}
             sites={adminItems.sites}
@@ -761,7 +742,8 @@ function App() {
             onMetricsRefresh={loadDashboardMetrics}
           />}
 
-          {! ["guards", "profileDocs", "sites", "supervisors", "fieldOfficers", "advances"].includes(adminTab) && <>
+          {! ["guards", "profileDocs", "sites", "supervisors", "fieldOfficers", "advances", "mediaCleanup", "retainedHistory"].includes(adminTab) && <>
+          {adminTab !== "overview" && <RecordFilter value={recordFilter} onChange={setRecordFilter}/>}
           <div className="gss-admin-list-heading">
             <h3>{adminTab === "overview" ? "Quick Operational Actions" : "Records & Entries"}</h3>
             {adminTab !== "overview" && <input className="gss-admin-search" type="search" value={adminSearch} onChange={e => setAdminSearch(e.target.value)} placeholder="Search records" aria-label="Search records"/>}
@@ -804,18 +786,16 @@ function App() {
 
                     {adminTab === "notifications" && item.button_label && safeNotificationHref(item.button_url) && <a href={safeNotificationHref(item.button_url)} target={item.button_url?.startsWith("https://") ? "_blank" : undefined} rel="noopener noreferrer" className="text-link" style={{marginTop: 5}}>{item.button_label}<ArrowUpRight size={13}/></a>}
 
+                    {item.admin_notes && <p><b>Review notes:</b> {item.admin_notes}</p>}
                     <small>{item.created_at ? `Added: ${new Date(item.created_at).toLocaleDateString()}` : ""}</small>
                   </div>
                   <div className="gss-admin-item-actions">
-                    {adminTab === "complaints" && <button type="button" onClick={() => toggleComplaintStatus(item)}>{item.status === "resolved" ? "Reopen" : "Mark Resolved"}</button>}
                     {!['complaints', 'contactSubmissions', 'jobApplications'].includes(adminTab) && (
-                      <button type="button" onClick={() => startEditing(item, adminTab)} aria-label="Edit item">
+                      <button type="button" disabled={Boolean(item.archived_at)} onClick={() => startEditing(item, adminTab)} aria-label="Edit item">
                         <Pencil size={15}/> Edit
                       </button>
                     )}
-                    <button type="button" className="danger" onClick={() => deleteAdminItem(item, adminTab)} aria-label="Delete item">
-                      <Trash2 size={15}/> Delete
-                    </button>
+                    <RecordActions module={adminTab} item={item} onChanged={async () => { await loadAdminItems(adminTab); await loadDashboardMetrics(); }} onEditingDeleted={resetItemForm}/>
                   </div>
                 </article>
               ))}

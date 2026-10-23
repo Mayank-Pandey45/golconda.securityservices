@@ -12,11 +12,13 @@ test("public profile files are filtered to approved records and private objects 
     { id: 2, title: "Private employee record", description: "Confidential", is_public: false, storage_path: "private/employee.pdf", category: "Other", media_type: "pdf" },
     { id: 3, title: "Approved external image", description: "Team event", is_public: true, file_url: "https://example.com/team.webp", category: "Company Activities", media_type: "image" },
     { id: 4, title: "Unsafe link", is_public: true, file_url: "javascript:alert(1)", category: "Other", media_type: "document" },
+    { id: 6, title: "Archived file", is_public: true, archived_at: "2026-10-22", file_url: "https://example.com/archived.pdf" },
     { id: 5, title: "Credential URL", is_public: true, file_url: credentialedUrl.href, category: "Other", media_type: "document" },
   ];
   const query = {
     select(columns) { calls.push(["select", columns]); return this; },
     eq(field, value) { calls.push(["eq", field, value]); this.filter = { field, value }; return this; },
+    is() { return this; },
     order() { return this; },
     then(resolve, reject) { return Promise.resolve({ data: records.filter(row => row[this.filter.field] === this.filter.value), error: null }).then(resolve, reject); },
   };
@@ -38,6 +40,7 @@ test("public profile does not return rows whose private storage file cannot be s
   const query = {
     select() { return this; },
     eq() { return this; },
+    is() { return this; },
     order() { return this; },
     then(resolve, reject) { return Promise.resolve({ data: [{ id: 1, title: "Missing file", storage_path: "missing.pdf", is_public: true }], error: null }).then(resolve, reject); },
   };

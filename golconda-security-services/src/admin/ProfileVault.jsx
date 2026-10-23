@@ -1,5 +1,8 @@
+import RecordActions, { RecordFilter } from "./RecordActions.jsx";
+import { matchesRecordState } from "../../shared/recordLifecycle.js";
+import { recordRequest, queueOrphan } from "./recordClient.js";
 import React, { useEffect, useState } from "react";
-import { ArrowUpRight, FileText, Image as ImageIcon, Pencil, Plus, Trash2, Upload, Video, X } from "lucide-react";
+import { ArrowUpRight, FileText, Image as ImageIcon, Pencil, Plus, Upload, Video, X } from "lucide-react";
 import { supabase } from "../supabase";
 import "./profileVault.css";
 
@@ -31,6 +34,7 @@ function safeExternalUrl(value) {
 
 export default function ProfileVault({ items = [], onRefresh, onMetricsRefresh }) {
   const [form, setForm] = useState(initialForm);
+  const [recordFilter, setRecordFilter] = useState("all");
   const [editingId, setEditingId] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
   const [message, setMessage] = useState("");
@@ -122,53 +126,23 @@ export default function ProfileVault({ items = [], onRefresh, onMetricsRefresh }
         file_url: fileUrl, storage_path: storagePath, mime_type: mimeType, media_type: mediaType,
         is_public: form.is_public, sort_order: Number(form.sort_order) || 0,
       };
-      const query = supabase.from("profile_docs");
-      const result = editingId
-        ? await query.update(payload).eq("id", editingId).select("id").single()
-        : await query.insert(payload).select("id").single();
-      if (result.error) throw new Error(`Save failed: ${result.error.message}`);
-      if (!result.data?.id) throw new Error("The profile record was not saved.");
+      const result = await recordRequest({ module: "profileDocs", id: editingId, action: "save", patch: payload });
+      if (!result.id) throw new Error("The profile record was not saved.");
       recordSaved = true;
 
-      let oldFileCleanupFailed = false;
-      if (previousPath && previousPath !== storagePath) {
-        const cleanup = await supabase.storage.from(BUCKET).remove([previousPath]);
-        oldFileCleanupFailed = Boolean(cleanup.error);
-      }
       resetForm();
       await onRefresh();
       await onMetricsRefresh();
-      setMessage(oldFileCleanupFailed
-        ? "Profile record saved, but its replaced private file could not be removed. Review Storage for the orphaned file."
-        : wasEditing ? "Profile file updated." : "Profile file saved.");
+      setMessage(wasEditing ? "Profile file updated. Replaced files require reviewed cleanup." : "Profile file saved.");
     } catch (error) {
-      if (uploadedPath && !recordSaved) await supabase.storage.from(BUCKET).remove([uploadedPath]);
-      setMessage(error.message);
+      const orphanMessage = uploadedPath && !recordSaved ? await queueOrphan(BUCKET, uploadedPath) : "";
+      setMessage(error.message + " " + orphanMessage);
     } finally {
       setUploading(false);
       setBusy(false);
     }
   }
 
-  async function deleteDocument(item) {
-    if (!window.confirm(`Delete “${item.title}”? This cannot be undone.`)) return;
-    setBusy(true);
-    const { error } = await supabase.from("profile_docs").delete().eq("id", item.id);
-    if (error) {
-      setMessage(`Delete failed: ${error.message}`);
-      setBusy(false);
-      return;
-    }
-    let storageError = null;
-    if (item.storage_path) {
-      const result = await supabase.storage.from(BUCKET).remove([item.storage_path]);
-      storageError = result.error;
-    }
-    await onRefresh();
-    await onMetricsRefresh();
-    setMessage(storageError ? "Profile record deleted, but its private file could not be removed. Review Storage for the orphaned file." : "Profile record deleted.");
-    setBusy(false);
-  }
 
   return <div className="gss-profile-vault">
     <form className="gss-admin-form" onSubmit={saveDocument}>
@@ -187,7 +161,7 @@ export default function ProfileVault({ items = [], onRefresh, onMetricsRefresh }
 
     {message && <p className="gss-admin-message" role="status">{message}</p>}
     <div className="gss-admin-list-heading"><h3>Profile vault · {items.length} records</h3><button className="gss-admin-secondary" type="button" onClick={onRefresh}>Refresh</button></div>
-    {items.length === 0 ? <p className="gss-admin-empty">No profile files have been added.</p> : <div className="profile-vault-list">{items.map(item => {
+    <RecordFilter value={recordFilter} onChange={setRecordFilter}/>{items.length === 0 ? <p className="gss-admin-empty">No profile files have been added.</p> : <div className="profile-vault-list">{items.filter(item => matchesRecordState("profileDocs", item, recordFilter)).map(item => {
       const preview = previewUrls[item.id];
       return <article className="gss-admin-item" key={item.id}>
         <div className="gss-admin-item-copy">
@@ -197,7 +171,7 @@ export default function ProfileVault({ items = [], onRefresh, onMetricsRefresh }
           {preview && item.media_type === "video" && <video className="profile-vault-thumb" src={preview} controls preload="metadata" aria-label={`Preview ${item.title}`}/>}
           {preview && <a href={preview} target="_blank" rel="noopener noreferrer" className="text-link" style={{marginTop: 8}}>View file <ArrowUpRight size={14}/></a>}
         </div>
-        <div className="gss-admin-item-actions"><button type="button" onClick={() => startEditing(item)}><Pencil size={15}/> Edit</button><button type="button" className="danger" onClick={() => deleteDocument(item)} disabled={busy}><Trash2 size={15}/> Delete</button></div>
+        <div className="gss-admin-item-actions"><button type="button" disabled={Boolean(item.archived_at)} onClick={() => startEditing(item)}><Pencil size={15}/> Edit</button><RecordActions module={"profileDocs"} item={item} onChanged={async () => { await onRefresh(); await onMetricsRefresh(); }} onEditingDeleted={() => { if (editingId === item.id) resetForm(); }}/></div>
       </article>;
     })}</div>}
   </div>;

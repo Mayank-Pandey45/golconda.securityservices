@@ -1,3 +1,22 @@
+## Production migration verified — 23 October 2026
+
+Owner explicitly accepted proceeding without full backup restore rehearsal.
+The reviewed 20261022190000_record_management.sql was applied successfully through
+Supabase apply_migration to production ntcvrxdyukfpobjvxxiz. Supabase recorded it
+as version 20261023093445, name record_management. This is the same migration,
+not another pending migration: do NOT replay the local timestamp with db push.
+All read-only postflight schema/RLS/RPC/Storage permission checks passed.
+All 23 pre-existing application table row counts and business-data fingerprints
+matched the pre-migration baseline (new archive/default metadata excluded).
+Backup: 20261023T083254Z-f02149b6; database + both private buckets/one file verified.
+Latest tests 131/131, build PASS, audit zero vulnerabilities, diff check PASS.
+Full restore rehearsal remains explicitly waived; no destructive live tests.
+Production code deployment verification follows separately. Email, Telegram and
+Google Sheets remain disabled. Prior blocked/backup/setup notes below are history.
+
+---
+> **Latest owner-approved release path (22 October 2026):** Docker/full isolated integration was waived. Production release remains conditional on verified database and private-file backups. Free manual tooling is prepared in [FREE_MANUAL_BACKUP.md](FREE_MANUAL_BACKUP.md); real backup execution is blocked by missing PostgreSQL 17 client tools and securely configured local credentials. Backup tooling tests and all regressions passed (130/130), build passed. No production migration, commit, push or deployment occurred. Existing implementation details: [RECORD_MANAGEMENT_RELEASE.md](RECORD_MANAGEMENT_RELEASE.md). Older snapshots below are historical. Telegram, Sheets and outbound email remain disabled; no Cron was added.
+
 # Golconda Security Services — Project Status
 
 > Pending API routing/import fix: [API_ROUTING_FIX.md](API_ROUTING_FIX.md). Production nested admin APIs return platform 404; local fixes await approved Preview verification and production release. No database migration is required.

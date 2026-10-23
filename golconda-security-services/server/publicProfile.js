@@ -13,13 +13,15 @@ function safeExternalUrl(value) {
 
 export async function getPublicProfileDocuments(database) {
   const { data, error } = await database.from("profile_docs")
-    .select("id,title,description,file_url,storage_path,category,mime_type,media_type,created_at,sort_order")
+    .select("id,title,description,file_url,storage_path,category,mime_type,media_type,created_at,sort_order,archived_at")
     .eq("is_public", true)
+    .is("archived_at", null)
     .order("sort_order", { ascending: true })
     .order("created_at", { ascending: false });
   if (error) throw error;
 
   const documents = await Promise.all((data || []).map(async item => {
+    if (item.archived_at) return null;
     let fileUrl = safeExternalUrl(item.file_url);
     if (item.storage_path) {
       const path = String(item.storage_path);

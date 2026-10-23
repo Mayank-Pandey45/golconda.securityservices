@@ -1,3 +1,4 @@
+import { employeeRecordKey } from "../../shared/recordLifecycle.js";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowDownToLine, Check, ChevronLeft, ChevronRight, Plus, RefreshCw, RotateCcw, X } from "lucide-react";
 import { apiUrl, readApiResponse } from "../api.js";
@@ -108,7 +109,7 @@ export default function AdvancesManagement({ guards = [], supervisors = [], fiel
   async function submitAdvance(event) {
     event.preventDefault(); setBusy(true); setMessage("");
     try {
-      const employee = people.find(person => String(person.id) === advanceForm.employee_id);
+      const employee = people.find(person => employeeRecordKey(person) === advanceForm.employee_id);
       if (!employee) throw new Error("Select an employee.");
       await requestJson("/api/operations/advances", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "record", employee_type: employee.employee_type, employee_id: employee.id, site_id: advanceForm.site_id || null, amount: advanceForm.amount, occurred_at: advanceForm.occurred_at ? new Date(advanceForm.occurred_at).toISOString() : undefined, payment_mode: advanceForm.payment_mode, description: advanceForm.description }) });
       setAdvanceForm({ employee_id: "", site_id: "", amount: "", occurred_at: "", payment_mode: "", description: "" });
@@ -189,15 +190,15 @@ export default function AdvancesManagement({ guards = [], supervisors = [], fiel
     setPage(1); setFilters(previous => ({ ...previous, month: value, ...range }));
   }
 
-  const selectedAdvancePerson = people.find(person => String(person.id) === advanceForm.employee_id);
+  const selectedAdvancePerson = people.find(person => employeeRecordKey(person) === advanceForm.employee_id);
   const employeeSites = selectedAdvancePerson?.site_records || [];
 
   return <div className="advances-management">
     <p className="advances-note">Financial entries are append-only. Advances are not deducted from net pay until an explicit recovery is allocated to one salary month. ESI/PF rates are not automatically deducted; approved manual salary adjustments are included. Estimates are not statutory payroll processing, and daily guard rates are excluded because attendance is not tracked.</p>
     <form className="gss-admin-form advances-record-form" onSubmit={submitAdvance}>
       <h3>Record an advance</h3>
-      <label>Employee<select required value={advanceForm.employee_id} onChange={event => setAdvanceForm({ ...advanceForm, employee_id: event.target.value, site_id: "" })}><option value="">Choose a person</option>{people.map(person => <option key={`${person.employee_type}:${person.id}`} value={person.id}>{person.employee_code} · {person.full_name} ({person.employee_type.replaceAll("_", " ")})</option>)}</select></label>
-      <label>Assigned site (optional)<select value={advanceForm.site_id} onChange={event => setAdvanceForm({ ...advanceForm, site_id: event.target.value })}><option value="">Not assigned to a site</option>{employeeSites.map(site => <option key={site.id} value={site.id}>{site.title}</option>)}</select></label>
+      <label>Employee<select required value={advanceForm.employee_id} onChange={event => setAdvanceForm({ ...advanceForm, employee_id: event.target.value, site_id: "" })}><option value="">Choose a person</option>{people.filter(person => !person.archived_at).map(person => <option key={employeeRecordKey(person)} value={employeeRecordKey(person)}>{person.employee_code} · {person.full_name} ({person.employee_type.replaceAll("_", " ")})</option>)}</select></label>
+      <label>Assigned site (optional)<select value={advanceForm.site_id} onChange={event => setAdvanceForm({ ...advanceForm, site_id: event.target.value })}><option value="">Not assigned to a site</option>{employeeSites.filter(site => !site.archived_at).map(site => <option key={site.id} value={site.id}>{site.title}</option>)}</select></label>
       <label>Amount · INR<input type="number" required min="0.01" max="100000000" step="0.01" value={advanceForm.amount} onChange={event => setAdvanceForm({ ...advanceForm, amount: event.target.value })}/></label>
       <label>Date & time<input type="datetime-local" value={advanceForm.occurred_at} onChange={event => setAdvanceForm({ ...advanceForm, occurred_at: event.target.value })}/><small>Displayed in Asia/Kolkata; stored in UTC.</small></label>
       <label>Payment mode<input maxLength="60" value={advanceForm.payment_mode} onChange={event => setAdvanceForm({ ...advanceForm, payment_mode: event.target.value })} placeholder="Cash / bank transfer"/></label>

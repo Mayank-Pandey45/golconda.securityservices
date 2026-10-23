@@ -1,3 +1,22 @@
+## Production migration verified — 23 October 2026
+
+Owner explicitly accepted proceeding without full backup restore rehearsal.
+The reviewed 20261022190000_record_management.sql was applied successfully through
+Supabase apply_migration to production ntcvrxdyukfpobjvxxiz. Supabase recorded it
+as version 20261023093445, name record_management. This is the same migration,
+not another pending migration: do NOT replay the local timestamp with db push.
+All read-only postflight schema/RLS/RPC/Storage permission checks passed.
+All 23 pre-existing application table row counts and business-data fingerprints
+matched the pre-migration baseline (new archive/default metadata excluded).
+Backup: 20261023T083254Z-f02149b6; database + both private buckets/one file verified.
+Latest tests 131/131, build PASS, audit zero vulnerabilities, diff check PASS.
+Full restore rehearsal remains explicitly waived; no destructive live tests.
+Production code deployment verification follows separately. Email, Telegram and
+Google Sheets remain disabled. Prior blocked/backup/setup notes below are history.
+
+---
+> **Latest release preparation (22 October 2026):** see [RECORD_MANAGEMENT_RELEASE.md](RECORD_MANAGEMENT_RELEASE.md). Production schema/grants/policies/history were re-inspected read-only. The draft migration and RLS/rollback were executed only in embedded PostgreSQL 17.5 with synthetic records. No production writes or releases occurred. All 23 public tables have RLS; the production advisor still reports leaked-password protection disabled. Hosted Auth/Storage and concurrent locking remain unverified. Older snapshots below are historical; integrations/email remain disabled.
+
 # Security, performance, and failure-scenario review
 
 **Scope:** current code in this worktree and local tests/build when run. Live Supabase/Vercel observations in this report are historical and were not re-queried during the current pre-release pass because no explicit staging credentials or Vercel project access were available. This is not an independent penetration test or a production verification of pending migrations.

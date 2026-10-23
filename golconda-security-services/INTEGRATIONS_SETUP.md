@@ -1,3 +1,22 @@
+## Production migration verified — 23 October 2026
+
+Owner explicitly accepted proceeding without full backup restore rehearsal.
+The reviewed 20261022190000_record_management.sql was applied successfully through
+Supabase apply_migration to production ntcvrxdyukfpobjvxxiz. Supabase recorded it
+as version 20261023093445, name record_management. This is the same migration,
+not another pending migration: do NOT replay the local timestamp with db push.
+All read-only postflight schema/RLS/RPC/Storage permission checks passed.
+All 23 pre-existing application table row counts and business-data fingerprints
+matched the pre-migration baseline (new archive/default metadata excluded).
+Backup: 20261023T083254Z-f02149b6; database + both private buckets/one file verified.
+Latest tests 131/131, build PASS, audit zero vulnerabilities, diff check PASS.
+Full restore rehearsal remains explicitly waived; no destructive live tests.
+Production code deployment verification follows separately. Email, Telegram and
+Google Sheets remain disabled. Prior blocked/backup/setup notes below are history.
+
+---
+> **Latest release preparation (22 October 2026):** see [RECORD_MANAGEMENT_RELEASE.md](RECORD_MANAGEMENT_RELEASE.md). Record Management SQL was rehearsed only in disposable PostgreSQL 17.5; the production database and environment were unchanged. Synthetic advance tests confirm no outbox jobs are queued when Sheets is disabled. Telegram, Sheets and outbound email remain disabled; no Cron or hosted integration was enabled. Older snapshots below are historical.
+
 # Telegram and Google Sheets setup
 
 Both integrations are implemented as optional, server-only Vercel functions. Supabase remains the source of truth. **Both integrations must remain disabled for this release.** Do not add integration credentials to Vercel or configure a production Cron. The setup below is for a future Preview-only validation after separate owner approval.

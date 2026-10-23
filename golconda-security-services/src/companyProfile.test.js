@@ -1,3 +1,4 @@
+import { createServer as createHttpServer } from "node:http";
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -6,7 +7,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { createServer } from 'vite';
 
 test('dedicated profile renders approved document metadata, images, videos and home links', async () => {
-  const server = await createServer({ configFile: false, optimizeDeps: { noDiscovery: true, include: [] }, server: { middlewareMode: true }, appType: 'custom' });
+  const server = await createServer({ configFile: false, optimizeDeps: { noDiscovery: true, include: [] }, server: { middlewareMode: true, hmr: { server: createHttpServer() } }, appType: 'custom' });
   try {
     const { default: CompanyProfile } = await server.ssrLoadModule('/src/CompanyProfile.jsx');
     const documents = ['document', 'image', 'video'].map((media_type, id) => ({ id, media_type, title: 'Approved ' + media_type, description: 'Published description', category: 'Public category', file_url: 'https://example.com/public/' + id }));

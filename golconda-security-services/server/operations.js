@@ -24,6 +24,13 @@ export async function requireAdmin(database, authorization) {
   return user.id;
 }
 
+function throwRecordWriteError(error, fallback) {
+  if (error.code === "55000" && /Compensation history must be retained/.test(error.message || "")) throw new OperationsRequestError("This salary change would remove an existing compensation record for the same effective date. It was not saved. Review a dated salary transition that retains history.", 409);
+  if (["55000", "P0001", "23503", "23505", "40P01", "40001"].includes(error.code)) throw new OperationsRequestError("This record or a selected relationship is archived, unavailable, changed concurrently or conflicts with retained history. Refresh, restore records if appropriate, and review assignments. No partial save was confirmed.", 409);
+  if (["PGRST202", "42883", "42703"].includes(error.code)) throw new OperationsRequestError("The required database migration is unavailable. Contact the administrator.", 503);
+  throw new Error(fallback);
+}
+
 function idList(value, name) {
   if (!Array.isArray(value)) throw new OperationsRequestError(`${name} must be an array of record IDs.`);
   const values = value.map(id => Number(id));
@@ -52,7 +59,8 @@ export async function saveSite(database, input, actorId) {
     p_field_officer_ids: fieldOfficerIds,
     p_actor_id: actorId,
   });
-  if (error) throw new Error("Site details and assignments could not be saved.");
+  if (error) throwRecordWriteError(error, "Site details and assignments could not be saved.");
+  if (!Number.isSafeInteger(Number(data)) || Number(data) <= 0) throw new OperationsRequestError("Site save was not confirmed. Refresh the record.", siteId ? 404 : 500);
   return { ok: true, site_id: data };
 }
 
@@ -173,7 +181,8 @@ export async function saveEmployee(database, input, actorId) {
     p_reporting_ids: reportingIds,
     p_actor_id: actorId,
   });
-  if (error) throw new Error("Employee details, compensation, and assignments could not be saved.");
+  if (error) throwRecordWriteError(error, "Employee details, compensation, and assignments could not be saved.");
+  if (!Number.isSafeInteger(Number(data)) || Number(data) <= 0) throw new OperationsRequestError("Employee save was not confirmed. Refresh the record.", employeeId ? 404 : 500);
   return { ok: true, employee_id: data };
 }
 
@@ -202,7 +211,8 @@ export async function saveGuard(database, input, actorId) {
     p_site_ids: siteIds,
     p_actor_id: actorId,
   });
-  if (error) throw new Error("Guard details, compensation, and site assignments could not be saved.");
+  if (error) throwRecordWriteError(error, "Guard details, compensation, and site assignments could not be saved.");
+  if (!Number.isSafeInteger(Number(data)) || Number(data) <= 0) throw new OperationsRequestError("Guard save was not confirmed. Refresh the record.", guardId ? 404 : 500);
   return { ok: true, guard_id: data };
 }
 
@@ -268,7 +278,7 @@ export async function recordAdvance(database, input, actorId, env = process.env)
     enqueue_sheet_sync: isGoogleSheetsSyncConfigured(env),
   };
   const { data, error } = await database.rpc("record_advance", { p_advance: payload, p_actor_id: actorId });
-  if (error) throw new Error("Advance could not be recorded. Verify the employee, site assignment, and amount.");
+  if (error) throwRecordWriteError(error, "Advance could not be recorded. Verify the employee, site assignment, and amount.");
   return { ok: true, advance_id: data };
 }
 
