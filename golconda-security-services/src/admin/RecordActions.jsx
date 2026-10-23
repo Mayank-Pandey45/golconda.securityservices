@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from "react";
-import { recordActions, actionLabels, confirmationPhrase, intakeStates, recordState } from "../../shared/recordLifecycle.js";
+import { recordActions, actionLabels, confirmationPhrase, intakeStates, recordState, recordLabel } from "../../shared/recordLifecycle.js";
 import { recordRequest } from "./recordClient.js";
 import "./recordManagement.css";
 
@@ -51,7 +51,7 @@ export default function RecordActions({ module, item, onChanged, onEditingDelete
     {intakeStates[module] && <small>Original submission retained. Permanent deletion is disabled until a retention policy is approved.</small>}
     {message && <p role="status" className="record-feedback">{message}</p>}
     {action && <RecordDialog title={(action === "edit" ? "Review" : actionLabels[action]) + " · record #" + item.id} onClose={close}><form onSubmit={submit}>
-      <p>{item.title || item.full_name || item.name || item.subject || "Record"}.</p>
+      <p>{recordLabel(item)}.</p>
       {action === "edit" ? <><p>Original submission details are retained unchanged.</p><label>Review status<select value={status} onChange={event => setStatus(event.target.value)}>{intakeStates[module].map(value => <option key={value}>{value}</option>)}</select></label><label>Administrator notes<textarea maxLength={5000} value={notes} onChange={event => setNotes(event.target.value)}/></label></> : <p>{action === "delete" ? "Permanent deletion cannot be undone. Linked assignments, payroll, advances and retained history will never be deleted to force this action. Archive is the safe alternative." : action === "restore" ? "Restore keeps history and files. Review activation, publication and assignments separately." : "This action preserves records and financial history. Deactivation and archive do not change employment dates or stop salary accrual."}</p>}
       {action === "delete" && <><label>Type {confirmationPhrase(action, item.id)}<input autoComplete="off" value={phrase} onChange={event => setPhrase(event.target.value)}/></label><label className="record-ack"><input type="checkbox" checked={understood} onChange={event => setUnderstood(event.target.checked)}/> I understand this record cannot be restored after permanent deletion.</label></>}
       {message && <p role="alert" className="record-feedback">{message}</p>}

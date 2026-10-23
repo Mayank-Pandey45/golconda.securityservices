@@ -8,3 +8,6 @@ supabase/.temp/
 
 # Local safety copy; never deploy or commit.
 server/vercel-endpoints-backup/
+
+# Synthetic browser QA files and downloads (never production data).
+qa-artifacts/

@@ -4,7 +4,7 @@ import React, { useMemo, useState } from "react";
 import { ArrowDownToLine, Building2, Check, FileSpreadsheet, Pencil, Plus, RefreshCw, Upload, X } from "lucide-react";
 import { apiUrl, readApiResponse } from "../api.js";
 import { downloadFile } from "../guardSpreadsheet.js";
-import { parseSiteImportFile, previewSiteImportRows, siteImportTemplateCsv, siteRecordsToCsv } from "../siteSpreadsheet.js";
+import { MAX_SITE_IMPORT_BYTES, MAX_SITE_IMPORT_ROWS, parseSiteImportFile, previewSiteImportRows, siteImportTemplateCsv, siteRecordsToCsv } from "../siteSpreadsheet.js";
 import { supabase } from "../supabase.js";
 import "./siteManagement.css";
 
@@ -145,7 +145,7 @@ export default function SiteManagement({ items = [], guards = [], supervisors = 
     </form>
 
     <section className="site-import-card" aria-labelledby="site-import-heading">
-      <div className="site-module-heading"><div><h3 id="site-import-heading">Import sites and linked staff</h3><p>Upload CSV or Excel .xlsx (maximum 5 MB and 2,000 rows). Repeat a site code across rows to link several guards.</p></div>
+      <div className="site-module-heading"><div><h3 id="site-import-heading">Import sites and linked staff</h3><p>Upload CSV or Excel .xlsx (maximum {MAX_SITE_IMPORT_BYTES / (1024 * 1024)} MB and {MAX_SITE_IMPORT_ROWS.toLocaleString("en-IN")} rows). Repeat a site code across rows to link several guards.</p></div>
         <button className="gss-admin-secondary" type="button" onClick={() => downloadFile(siteImportTemplateCsv(), "golconda-site-import-template.csv", "text/csv;charset=utf-8")}><ArrowDownToLine size={15}/> Download template</button>
       </div>
       <label className="site-import-file">Choose CSV or Excel file<input type="file" accept=".csv,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" disabled={busy} onChange={event => readSelectedFile(event.target.files?.[0] || null)}/></label>

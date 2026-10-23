@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { parseSiteImportFile, previewSiteImportRows, siteRecordsToCsv } from "./siteSpreadsheet.js";
+import { MAX_SITE_IMPORT_BYTES, parseSiteImportFile, previewSiteImportRows, siteRecordsToCsv } from "./siteSpreadsheet.js";
+
+test('site import size errors match the configured 3.5 MB limit',async()=>{
+ await assert.rejects(parseSiteImportFile({name:'oversized.csv',size:MAX_SITE_IMPORT_BYTES+1}),/3\.5 MB/);
+});
 
 function asFile(name, source) {
   const bytes = source instanceof Uint8Array ? source : new TextEncoder().encode(source);

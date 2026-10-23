@@ -48,3 +48,7 @@ export const actionLabels = {
 };
 
 export function employeeRecordKey(person) { return person.employee_type + ":" + person.id; }
+
+export function recordLabel(record) {
+  return record.title || record.full_name || record.name || record.complainant_name || record.file_title || record.subject || "Record";
+}

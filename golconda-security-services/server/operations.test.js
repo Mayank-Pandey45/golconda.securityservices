@@ -6,6 +6,11 @@ import { createServer } from "node:http";
 import { createApp, createIntakeRateLimiter } from "./index.js";
 import { recordAdvance } from "./operations.js";
 
+test('advance recording cannot report success without a confirmed database ID',async()=>{
+ const database={async rpc(){return {data:null,error:null};}};
+ await assert.rejects(recordAdvance(database,{employee_type:'guard',employee_id:1,amount:1},'synthetic-admin',{}),e=>e.status===500&&/not confirmed/.test(e.message));
+});
+
 function fakeDatabase({ admin = true, people = {} } = {}) {
   const calls = [];
   const database = {
@@ -28,7 +33,7 @@ function fakeDatabase({ admin = true, people = {} } = {}) {
       };
       return query;
     },
-    async rpc(name, args) { calls.push({ name, args }); return { data: name === "save_site_with_assignments" ? 5 : name === "save_guard_profile" ? 8 : name === "save_employee_profile" ? 9 : { sites_created: 1, sites_updated: 0, guards_created: 1, guards_updated: 0, supervisors_created: 0, supervisors_updated: 0, field_officers_created: 0, field_officers_updated: 0, relationships_added: 1, skipped: 0, failed: 0 }, error: null }; },
+    async rpc(name, args) { calls.push({ name, args }); return { data: name === "record_advance" ? 17 : name === "save_site_with_assignments" ? 5 : name === "save_guard_profile" ? 8 : name === "save_employee_profile" ? 9 : { sites_created: 1, sites_updated: 0, guards_created: 1, guards_updated: 0, supervisors_created: 0, supervisors_updated: 0, field_officers_created: 0, field_officers_updated: 0, relationships_added: 1, skipped: 0, failed: 0 }, error: null }; },
   };
   return database;
 }

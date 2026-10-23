@@ -9,6 +9,7 @@ import { supabase } from "../supabase.js";
 import "./peopleManagement.css";
 
 const BUCKET = "employee-private";
+const EMPTY_ROWS = [];
 const initialForm = {
   employee_code: "", full_name: "", phone: "", email: "", designation: "", status: "active", joining_date: "", employment_end_date: "",
   date_of_birth: "", residential_address: "", photo_storage_path: "", gross_monthly_salary: "", salary_effective_from: "",
@@ -47,12 +48,12 @@ function CheckList({ title, options, selected, onChange, hint }) {
     {hint && <p>{hint}</p>}
     {options.length ? <div className="people-check-list">{options.map(option => <label key={option.id}>
       <input type="checkbox" checked={selectedSet.has(String(option.id))} onChange={() => onChange(selectedSet.has(String(option.id)) ? selected.filter(id => id !== String(option.id)) : [...selected, String(option.id)])}/>
-      <span><b>{option.full_name}</b><small>{option.employee_code || option.phone}</small></span>
+      <span><b>{option.full_name || option.title}</b><small>{option.employee_code || option.site_code || option.phone}</small></span>
     </label>)}</div> : <small>No records available to assign.</small>}
   </fieldset>;
 }
 
-export default function PeopleManagement({ employeeType, items = [], sites = [], guards = [], onRefresh, onMetricsRefresh }) {
+export default function PeopleManagement({ employeeType, items = EMPTY_ROWS, sites = EMPTY_ROWS, guards = EMPTY_ROWS, onRefresh, onMetricsRefresh }) {
   const isSupervisor = employeeType === "supervisor";
   const [recordFilter, setRecordFilter] = useState("all");
   const recordModule = isSupervisor ? "supervisors" : "fieldOfficers";
@@ -96,7 +97,7 @@ export default function PeopleManagement({ employeeType, items = [], sites = [],
     }
     loadRelations();
     return () => { active = false; };
-  }, [employeeType, items.length]);
+  }, [employeeType, items, guards]);
 
   useEffect(() => {
     let active = true;
@@ -210,7 +211,7 @@ export default function PeopleManagement({ employeeType, items = [], sites = [],
       <label>PF applicability<select value={form.pf_applicable} onChange={event => setForm({ ...form, pf_applicable: event.target.value })}><option value="">Not configured</option><option value="true">Applicable</option><option value="false">Not applicable</option></select></label>
       <label>PF rate (%)<input type="number" min="0" max="100" step="0.0001" value={form.pf_contribution_rate} onChange={event => setForm({ ...form, pf_contribution_rate: event.target.value })}/></label>
       <label className="full">Compensation notes<input maxLength="1000" value={form.salary_notes} onChange={event => setForm({ ...form, salary_notes: event.target.value })}/></label>
-      <CheckList title="Assigned sites" options={sites.filter(site => site.status !== "inactive")} selected={form.site_ids} onChange={site_ids => setForm({ ...form, site_ids })}/>
+      <CheckList title="Assigned sites" options={sites.filter(site => site.status !== "inactive" && !site.archived_at)} selected={form.site_ids} onChange={site_ids => setForm({ ...form, site_ids })}/>
       <CheckList title={isSupervisor ? "Reports to field officers" : "Supervisors reporting to this field officer"} options={reportingOptions} selected={form.reporting_ids} onChange={reporting_ids => setForm({ ...form, reporting_ids })}/>
       <div className="gss-admin-form-actions full"><button className="gss-admin-primary" type="submit" disabled={busy}>{editingId ? <Check size={15}/> : <Plus size={15}/>} {editingId ? "Save profile" : `Create ${isSupervisor ? "supervisor" : "field officer"}`}</button>{editingId && <button className="gss-admin-secondary" type="button" onClick={resetForm}><X size={15}/> Cancel</button>}</div>
     </form>

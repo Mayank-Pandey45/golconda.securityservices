@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { recordModules, recordActions, recordState, matchesRecordState, confirmationPhrase } from "./recordLifecycle.js";
+import { recordModules, recordActions, recordState, matchesRecordState, confirmationPhrase, recordLabel } from "./recordLifecycle.js";
 test("every managed module supports archive/restore and consistent visibility filters",()=>{
   for(const module of Object.keys(recordModules)){
     assert.ok(recordActions(module,{id:1,status:"active"}).includes("archive"));
@@ -31,4 +31,10 @@ test("public visibility, operational inactivity and strong delete confirmation r
 test("employee record identity never collides across Guard, Supervisor and Field Officer tables",async()=>{
  const {employeeRecordKey}=await import("./recordLifecycle.js");
  assert.equal(new Set(["guard","supervisor","field_officer"].map(employee_type=>employeeRecordKey({employee_type,id:1}))).size,3);
+});
+
+test('all record naming fields include complaint identities rather than an untitled fallback',()=>{
+ for(const field of ['title','full_name','name','complainant_name','file_title','subject'])assert.equal(recordLabel({[field]:'QA label'}),'QA label');
+ assert.equal(recordLabel({complainant_name:'QA complainant',subject:'QA subject'}),'QA complainant');
+ assert.equal(recordLabel({}),'Record');
 });

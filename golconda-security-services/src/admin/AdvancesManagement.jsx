@@ -1,5 +1,5 @@
 import { employeeRecordKey } from "../../shared/recordLifecycle.js";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDownToLine, Check, ChevronLeft, ChevronRight, Plus, RefreshCw, RotateCcw, X } from "lucide-react";
 import { apiUrl, readApiResponse } from "../api.js";
 import { supabase } from "../supabase.js";
@@ -64,6 +64,8 @@ export default function AdvancesManagement({ guards = [], supervisors = [], fiel
   const [adjustments, setAdjustments] = useState([]);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
+  const advancePending = useRef(false);
+  const advanceRequest = useRef(null);
   const [recoveryTarget, setRecoveryTarget] = useState(null);
   const [correctionTarget, setCorrectionTarget] = useState(null);
   const [advanceForm, setAdvanceForm] = useState({ employee_id: "", site_id: "", amount: "", occurred_at: "", payment_mode: "", description: "" });
@@ -107,15 +109,22 @@ export default function AdvancesManagement({ guards = [], supervisors = [], fiel
   const totalEstimate = periodEmployees.reduce((sum, person) => sum + Number(person.net_payable_estimate || 0), 0);
 
   async function submitAdvance(event) {
-    event.preventDefault(); setBusy(true); setMessage("");
+    event.preventDefault();
+    if (advancePending.current) return;
+    advancePending.current = true;
+    setBusy(true); setMessage("");
     try {
       const employee = people.find(person => employeeRecordKey(person) === advanceForm.employee_id);
       if (!employee) throw new Error("Select an employee.");
-      await requestJson("/api/operations/advances", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "record", employee_type: employee.employee_type, employee_id: employee.id, site_id: advanceForm.site_id || null, amount: advanceForm.amount, occurred_at: advanceForm.occurred_at ? new Date(advanceForm.occurred_at).toISOString() : undefined, payment_mode: advanceForm.payment_mode, description: advanceForm.description }) });
+      const input = { action: "record", employee_type: employee.employee_type, employee_id: employee.id, site_id: advanceForm.site_id || null, amount: advanceForm.amount, occurred_at: advanceForm.occurred_at ? new Date(advanceForm.occurred_at).toISOString() : undefined, payment_mode: advanceForm.payment_mode, description: advanceForm.description };
+      const fingerprint = JSON.stringify(input);
+      if (advanceRequest.current?.fingerprint !== fingerprint) advanceRequest.current = { fingerprint, reference: "dashboard:" + crypto.randomUUID() };
+      await requestJson("/api/operations/advances", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...input, external_reference: advanceRequest.current.reference }) });
+      advanceRequest.current = null;
       setAdvanceForm({ employee_id: "", site_id: "", amount: "", occurred_at: "", payment_mode: "", description: "" });
       await loadRecords(1); await loadPayroll(); await onMetricsRefresh?.(); setMessage("Advance recorded and stored.");
     } catch (error) { setMessage(error.message); }
-    finally { setBusy(false); }
+    finally { advancePending.current = false; setBusy(false); }
   }
 
   async function submitRecovery(event) {

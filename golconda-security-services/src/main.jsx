@@ -2,8 +2,8 @@ import RetainedHistory from "./admin/RetainedHistory.jsx";
 import RecordActions, { RecordFilter } from "./admin/RecordActions.jsx";
 import MediaCleanup from "./admin/MediaCleanup.jsx";
 import { recordRequest } from "./admin/recordClient.js";
-import { matchesRecordState } from "../shared/recordLifecycle.js";
-import React, { useEffect, useState } from "react";
+import { matchesRecordState, recordLabel } from "../shared/recordLifecycle.js";
+import React, { useEffect, useRef, useState } from "react";
 import { supabase, supabaseError } from "./supabase";
 import { apiUrl, readApiResponse } from "./api";
 import { formatUtcDate, toDateInputValue, toUtcDateTimestamp } from "./dateOnly";
@@ -57,7 +57,9 @@ function SectionHeading({ eyebrow, title, subtitle, align = "center" }) {
 function App() {
   const isCompanyProfile = /^\/company-profile\/?$/.test(window.location.pathname);
   const [menuOpen, setMenuOpen] = useState(false);
-  const [notice, setNotice] = useState("");
+  const [formNotices, setFormNotices] = useState({});
+  const [submitting, setSubmitting] = useState({});
+  const pendingSubmissions = useRef(new Set());
   const [publicContent, setPublicContent] = useState({ services: [], events: [], notifications: [] });
   const [publicContentLoading, setPublicContentLoading] = useState(true);
   const [publicContentError, setPublicContentError] = useState("");
@@ -131,8 +133,10 @@ function App() {
   };
 
   useEffect(() => {
+    if (adminMode) return;
     let active = true;
     async function loadPublicContent() {
+      setPublicContentLoading(true);
       if (!supabase) {
         setPublicContentError(supabaseError || "Public content database is not configured.");
         setPublicContentLoading(false);
@@ -155,7 +159,7 @@ function App() {
     }
     loadPublicContent();
     return () => { active = false; };
-  }, []);
+  }, [adminMode]);
 
   useEffect(() => {
     if (!isCompanyProfile && !adminMode && !publicContentLoading) {
@@ -433,17 +437,23 @@ function App() {
 
   async function submitForm(event, endpoint, payload, reset, successText) {
     event.preventDefault();
-    setNotice("");
+    if (pendingSubmissions.current.has(endpoint)) return;
+    pendingSubmissions.current.add(endpoint);
+    setSubmitting(value => ({ ...value, [endpoint]: true }));
+    setFormNotices(value => ({ ...value, [endpoint]: "" }));
     try {
       const response = await fetch(apiUrl(`/api/${endpoint}`), {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload)
       });
       const result = await readApiResponse(response);
       if (!response.ok || result.ok !== true || !result.id) throw new Error(result.error || "The submission could not be confirmed as saved. Please retry or contact the company.");
-      setNotice(result.message || successText);
+      setFormNotices(value => ({ ...value, [endpoint]: result.message || successText }));
       reset();
     } catch (error) {
-      setNotice(`Submission failed: ${error.message}`);
+      setFormNotices(value => ({ ...value, [endpoint]: `Submission failed: ${error.message}` }));
+    } finally {
+      pendingSubmissions.current.delete(endpoint);
+      setSubmitting(value => ({ ...value, [endpoint]: false }));
     }
   }
 
@@ -642,7 +652,7 @@ function App() {
             </div>
           )}
 
-          {adminTab !== "overview" && !["complaints", "contactSubmissions", "jobApplications", "guards", "profileDocs", "sites", "supervisors", "fieldOfficers", "advances"].includes(adminTab) && (
+          {["events", "notifications", "services"].includes(adminTab) && (
             <form className="gss-admin-form" onSubmit={saveAdminItem}>
               <h3>{editingId ? "Edit Item" : `Add New ${adminTab === "sites" ? "Site" : adminTab === "guards" ? "Guard" : adminTab === "profileDocs" ? "Profile Document" : adminTab === "notifications" ? "Notification" : adminTab === "events" ? "Event" : "Service"}`}</h3>
               
@@ -761,7 +771,7 @@ function App() {
               {visibleItems.map(item => (
                 <article className="gss-admin-item" key={item.id}>
                   <div className="gss-admin-item-copy">
-                    <strong>{item.title || item.full_name || item.name || item.file_title || "Untitled Record"}</strong>
+                    <strong>{recordLabel(item)}</strong>
                     {adminTab === "complaints" ? <>
                       <div className="site-details"><span><b>Role:</b> {item.role}</span><span><b>Phone:</b> {item.phone}</span><span><b>Status:</b> {item.status || "pending"}</span><span><b>Submitted:</b> {new Date(item.created_at).toLocaleString()}</span></div>
                       <p><b>Subject:</b> {item.subject}</p><p><b>Details:</b> {item.details}</p>
@@ -930,7 +940,8 @@ function App() {
             <label>Phone Number<input required value={complaintForm.phone} onChange={e=>setComplaintForm({...complaintForm, phone: e.target.value})} placeholder="9xxxxxxxxx"/></label>
             <label>Subject<input required value={complaintForm.subject} onChange={e=>setComplaintForm({...complaintForm, subject: e.target.value})} placeholder="Brief subject of complaint"/></label>
             <label>Complaint Details<textarea required rows="3" value={complaintForm.details} onChange={e=>setComplaintForm({...complaintForm, details: e.target.value})} placeholder="Provide full details..."/></label>
-            <button className="button button-gold button-full" type="submit">Submit Complaint <ArrowRight size={16}/></button>
+            <button className="button button-gold button-full" type="submit" disabled={Boolean(submitting.complaints)}>{submitting.complaints ? "Submitting…" : "Submit Complaint"} <ArrowRight size={16}/></button>
+            {formNotices.complaints && <p className="form-notice" role="status">{formNotices.complaints}</p>}
           </form>
         </div>
       </section>
@@ -945,7 +956,8 @@ function App() {
             <label>Email address<input required type="email" value={application.email} onChange={e=>setApplication({...application,email:e.target.value})} placeholder="you@example.com"/></label>
             <label>Area of interest<select value={application.role} onChange={e=>setApplication({...application,role:e.target.value})}>{publicContent.services.map(service => <option key={service.id}>{service.title}</option>)}<option>Supervisor / Field Officer</option><option>General Interest</option></select></label>
             <label>Short introduction<textarea rows="3" value={application.message} onChange={e=>setApplication({...application,message:e.target.value})} placeholder="Experience or inquiries"/></label>
-            <button className="button button-gold button-full" type="submit">Submit Interest <ArrowRight size={16}/></button>
+            <button className="button button-gold button-full" type="submit" disabled={Boolean(submitting.applications)}>{submitting.applications ? "Submitting…" : "Submit Interest"} <ArrowRight size={16}/></button>
+            {formNotices.applications && <p className="form-notice" role="status">{formNotices.applications}</p>}
           </form>
         </div>
       </section>
@@ -966,8 +978,8 @@ function App() {
               <option>General Enquiry</option>
             </select></label>
             <label>How can we help? *<textarea required rows="4" value={contact.message} onChange={e=>setContact({...contact,message:e.target.value})} placeholder="Tell us about your requirement..."/></label>
-            <button className="button button-gold button-full" type="submit">Send Enquiry <ArrowRight size={16}/></button>
-            {notice && <p className="form-notice" role="status">{notice}</p>}
+            <button className="button button-gold button-full" type="submit" disabled={Boolean(submitting.contact)}>{submitting.contact ? "Submitting…" : "Send Enquiry"} <ArrowRight size={16}/></button>
+            {formNotices.contact && <p className="form-notice" role="status">{formNotices.contact}</p>}
             <p className="privacy-note"><LockKeyhole size={13}/> Secure & confidential communication.</p>
           </form>
         </div>
@@ -1007,7 +1019,6 @@ function App() {
       </div>
     </div>}
 
-    {notice && !loginOpen && <div className="toast" role="status">{notice}<button onClick={()=>setNotice("")} aria-label="Dismiss"><X size={16}/></button></div>}
   </>;
 }
 

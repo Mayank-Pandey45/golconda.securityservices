@@ -1,3 +1,18 @@
+## Website QA update — 23 October 2026
+
+Nine issue groups fixed and covered in WEBSITE_QA_REPORT.md. Final automated
+verification: 156/156 tests PASS, production build PASS, npm audit zero
+vulnerabilities, git diff --check PASS. Synthetic HTTP/PostgreSQL lifecycle tests
+and browser workflows cover every existing management module; production checks
+remain non-destructive. Full coverage limitations are explicitly in the report.
+No new migration is required. Existing record_management is already applied as
+20261023093445; do NOT replay local 20261022190000_record_management.sql.
+No production records, money, audit history, files or environment values were
+changed for testing. No new backup/restore/Docker setup was performed.
+Email, Telegram and Google Sheets remain disabled. Existing hosted configuration
+is preserved. Earlier reports below describe earlier release stages.
+
+---
 ## Production migration verified — 23 October 2026
 
 Owner explicitly accepted proceeding without full backup restore rehearsal.

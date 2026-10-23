@@ -3,3 +3,19 @@
 .gss-admin-shell .record-state{color:#3b657f}.gss-admin-shell .record-feedback{color:#315269!important}.record-actions{max-width:350px}.record-dialog .record-feedback{color:#cfe6f4!important}
 
 .record-dialog label input[type=checkbox]{flex:0 0 auto;width:18px;height:18px}.record-cleanup-row dl>div{display:grid;grid-template-columns:minmax(120px,.5fr) minmax(0,1fr);gap:10px;font-size:13px;margin:7px 0}.record-cleanup-row dd{margin:0;overflow-wrap:anywhere}@media(max-width:540px){.record-cleanup-row dl>div{grid-template-columns:1fr;gap:3px}.record-actions{max-width:100%}}
+
+/* Long account identifiers must wrap without widening every admin module. */
+.gss-admin-shell .record-filter{color:#475467}
+.gss-admin-account{min-width:0;max-width:100%;flex-wrap:wrap}
+.gss-admin-account>span{min-width:0;overflow-wrap:anywhere}
+.gss-admin-account button{flex-shrink:0}
+@media(max-width:600px){
+ .gss-admin-shell .gss-admin-header{flex-direction:column;align-items:stretch}
+ .gss-admin-shell .gss-admin-account{justify-content:space-between}
+ .gss-admin-shell .gss-admin-welcome{flex-direction:column;align-items:flex-start}
+ .gss-admin-shell .gss-admin-form{grid-template-columns:minmax(0,1fr);padding:14px}
+ .gss-admin-shell .gss-admin-list-heading{flex-wrap:wrap;gap:12px}
+ .gss-admin-shell .gss-admin-item{flex-direction:column}
+ .gss-admin-shell .gss-admin-item-actions{max-width:100%}
+ .gss-admin-shell .gss-overview-grid{grid-template-columns:minmax(0,1fr)}
+}

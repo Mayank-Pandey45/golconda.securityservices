@@ -118,7 +118,7 @@ function recordsFromMatrix(matrix, formulaCells = new Map()) {
 
 export async function parseSiteImportFile(file) {
   if (!file || typeof file.name !== "string") throw new Error("Select a CSV or Excel .xlsx file.");
-  if (file.size > MAX_SITE_IMPORT_BYTES) throw new Error("The file must be 5 MB or smaller.");
+  if (file.size > MAX_SITE_IMPORT_BYTES) throw new Error(`The file must be ${MAX_SITE_IMPORT_BYTES / (1024 * 1024)} MB or smaller.`);
   const extension = file.name.split(".").pop()?.toLowerCase();
   if (extension === "csv") {
     const text = typeof file.text === "function" ? await file.text() : new TextDecoder().decode(await file.arrayBuffer());

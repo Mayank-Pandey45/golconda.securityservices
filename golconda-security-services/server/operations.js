@@ -279,6 +279,19 @@ export async function recordAdvance(database, input, actorId, env = process.env)
   };
   const { data, error } = await database.rpc("record_advance", { p_advance: payload, p_actor_id: actorId });
   if (error) throwRecordWriteError(error, "Advance could not be recorded. Verify the employee, site assignment, and amount.");
+  if (!Number.isSafeInteger(Number(data)) || Number(data) <= 0) throw new OperationsRequestError("Advance save was not confirmed. Refresh before retrying.", 500);
+  if (externalReference) {
+    const { data: saved, error: readError } = await database.from("advances")
+      .select("id,employee_type,guard_id,supervisor_id,field_officer_id,site_id,amount,occurred_at,payment_mode,description")
+      .eq("id", data).maybeSingle();
+    if (readError || !saved) throw new OperationsRequestError("Advance confirmation could not be read. Keep the same reference when retrying.", 503);
+    const same = saved.employee_type === employeeType
+      && Number(saved.guard_id ?? saved.supervisor_id ?? saved.field_officer_id) === employeeId
+      && (saved.site_id == null ? null : Number(saved.site_id)) === siteId
+      && Number(saved.amount) === amount && saved.payment_mode === paymentMode && saved.description === description
+      && (!input.occurred_at || new Date(saved.occurred_at).valueOf() === occurredAt.valueOf());
+    if (!same) throw new OperationsRequestError("This payment reference already belongs to different advance details. Refresh the register before recording another payment.", 409);
+  }
   return { ok: true, advance_id: data };
 }
 
@@ -326,7 +339,9 @@ export async function recoverAdvance(database, input, actorId) {
     p_recovery: { advance_id: advanceId, salary_period: salaryPeriod, amount, notes },
     p_actor_id: actorId,
   });
-  if (error) throw new Error("Recovery could not be recorded. The amount may exceed the balance or already be allocated to this month.");
+  if (error?.code === "23505") throw new OperationsRequestError("This advance already has a recovery allocated to this salary month. Refresh before retrying.", 409);
+  if (error && ["23514", "P0001", "55000", "40001", "40P01"].includes(error.code)) throw new OperationsRequestError("Recovery conflicts with the available balance or a concurrent change. Refresh and review the amount before retrying.", 409);
+  if (error) throw new OperationsRequestError("Recovery could not be recorded. Refresh and retry; no success was confirmed.", 503);
   return { ok: true, recovery_id: data };
 }
 
