@@ -16,6 +16,8 @@ import ProfileVault from "./admin/ProfileVault.jsx";
 import SiteManagement from "./admin/SiteManagement.jsx";
 import PeopleManagement from "./admin/PeopleManagement.jsx";
 import AdvancesManagement from "./admin/AdvancesManagement.jsx";
+import GuardProfile from "./admin/GuardProfile.jsx";
+import SiteProfile from "./admin/SiteProfile.jsx";
 import AnnouncementBanner from "./AnnouncementBanner.jsx";
 import { createRoot } from "react-dom/client";
 import {
@@ -56,6 +58,10 @@ function SectionHeading({ eyebrow, title, subtitle, align = "center" }) {
 
 function App() {
   const isCompanyProfile = /^\/company-profile\/?$/.test(window.location.pathname);
+  const routeParams = new URLSearchParams(window.location.search);
+  const profileGuardId = routeParams.get("guard");
+  const profileSiteId = routeParams.get("site");
+  const requestedTab = routeParams.get("tab");
   const [menuOpen, setMenuOpen] = useState(false);
   const [formNotices, setFormNotices] = useState({});
   const [submitting, setSubmitting] = useState({});
@@ -78,7 +84,7 @@ function App() {
   
   const [adminMode, setAdminMode] = useState(false);
   const [adminEmail, setAdminEmail] = useState("");
-  const [adminTab, setAdminTab] = useState("overview");
+  const [adminTab, setAdminTab] = useState(() => requestedTab || (profileGuardId ? "guards" : profileSiteId ? "sites" : "overview"));
   const [dashboardMetrics, setDashboardMetrics] = useState(null);
   const [adminSearch, setAdminSearch] = useState("");
   const [recordFilter, setRecordFilter] = useState("all");
@@ -547,6 +553,11 @@ function App() {
         .gss-admin-form label{display:flex;flex-direction:column;gap:7px;font-size:12px;font-weight:700;color:#475467}
         .gss-admin-form label.full{grid-column:1/-1}
         .gss-admin-form input,.gss-admin-form textarea,.gss-admin-form select{width:100%;box-sizing:border-box;border:1px solid #d8dee8;background:#fff;border-radius:7px;padding:11px 12px;color:#172033;font:inherit;font-weight:400;outline-color:#caa65b}
+        .gss-admin-shell input::placeholder,.gss-admin-shell textarea::placeholder{color:#526174;opacity:1}
+        .gss-admin-shell .record-dialog input::placeholder,.gss-admin-shell .record-dialog textarea::placeholder{color:var(--color-dialog-placeholder);opacity:1}
+        .gss-admin-shell select option{color:#172033;background:#fff}
+        .gss-admin-shell input:focus-visible,.gss-admin-shell textarea:focus-visible,.gss-admin-shell select:focus-visible,.gss-admin-shell button:focus-visible,.gss-admin-shell a:focus-visible{outline:2px solid #126b9b;outline-offset:2px}
+        .gss-admin-shell button:disabled,.gss-admin-shell input:disabled,.gss-admin-shell textarea:disabled,.gss-admin-shell select:disabled{color:#526174;opacity:1;cursor:not-allowed;background:#eef1f4}
         .gss-admin-form textarea{resize:vertical}
         .gss-admin-form-actions{grid-column:1/-1;display:flex;gap:10px;flex-wrap:wrap}
         .gss-admin-message{background:#f5f0e4;border:1px solid #e6d8b6;color:#72531c;padding:12px 14px;border-radius:8px;font-size:13px}
@@ -612,7 +623,8 @@ function App() {
           <button className={adminTab === "jobApplications" ? "active" : ""} onClick={() => { setAdminTab("jobApplications"); resetItemForm(); }}><UserRound/><span><small>Recruitment</small><strong>Applications</strong><b>{metric("job_applications")} Records</b></span></button>
         </div>
 
-        <section className="gss-admin-panel">
+        <section className={`gss-admin-panel${profileGuardId || profileSiteId ? " gss-admin-profile-panel" : ""}`}>
+          {profileGuardId ? <GuardProfile guardId={profileGuardId}/> : profileSiteId ? <SiteProfile siteId={profileSiteId}/> : <>
           <div className="gss-admin-panel-heading">
             <div>
               <span className="eyebrow">MODULE CONTROL</span>
@@ -811,6 +823,7 @@ function App() {
               ))}
             </div>
           )}
+          </>}
           </>}
         </section>
 

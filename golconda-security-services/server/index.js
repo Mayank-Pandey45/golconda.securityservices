@@ -15,7 +15,7 @@ import { GuardImportRequestError, importGuardRows } from "./guardImport.js";
 import { getPublicProfileDocuments } from "./publicProfile.js";
 import { handleTelegramWebhook } from "./telegramIntegration.js";
 import { hasCronAuthorization, isGoogleSheetsSyncConfigured, SheetsSyncError, syncAdvanceSheetOutbox } from "./googleSheetsIntegration.js";
-import { adjustAdvance, createSalaryAdjustment, getPayrollSummary, importSiteRows, listAdvances, OperationsRequestError, recordAdvance, recoverAdvance, requireAdmin, saveEmployee, saveGuard, saveSite } from "./operations.js";
+import { adjustAdvance, closeSite, createSalaryAdjustment, exitEmployee, getPayrollSummary, importSiteRows, listAdvances, OperationsRequestError, recordAdvance, recoverAdvance, requireAdmin, saveEmployee, saveGuard, saveSite } from "./operations.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, "..");
@@ -190,6 +190,7 @@ export function createApp({
     try {
       const actorId = await requireAdmin(database, req.headers.authorization);
       if (req.body?.action === "delete") return res.json(await manageRecord(database, req.headers.authorization, { module: "sites", id: req.body.site_id, action: "delete", confirmation: req.body.confirmation }));
+      if (req.body?.action === "close") return res.json(await closeSite(database, req.body, actorId));
       if (req.body?.action === "save") return res.json(await saveSite(database, req.body, actorId));
       return res.status(400).json({ error: "Unknown site operation." });
     } catch (error) {
@@ -215,6 +216,7 @@ export function createApp({
     try {
       const actorId = await requireAdmin(database, req.headers.authorization);
       if (req.body?.action === "delete") return res.json(await manageRecord(database, req.headers.authorization, { module: (req.body.employee_type === "supervisor" ? "supervisors" : req.body.employee_type === "field_officer" ? "fieldOfficers" : ""), id: req.body.employee_id, action: "delete", confirmation: req.body.confirmation }));
+      if (req.body?.action === "exit") return res.json(await exitEmployee(database, req.body, actorId));
       if (req.body?.action === "save") return res.json(await saveEmployee(database, req.body, actorId));
       return res.status(400).json({ error: "Unknown employee operation." });
     } catch (error) {
@@ -228,6 +230,7 @@ export function createApp({
     try {
       const actorId = await requireAdmin(database, req.headers.authorization);
       if (req.body?.action === "delete") return res.json(await manageRecord(database, req.headers.authorization, { module: "guards", id: req.body.guard_id, action: "delete", confirmation: req.body.confirmation }));
+      if (req.body?.action === "exit") return res.json(await exitEmployee(database, { ...req.body, employee_type: "guard", employee_id: req.body.guard_id }, actorId));
       if (req.body?.action === "save") return res.json(await saveGuard(database, req.body, actorId));
       return res.status(400).json({ error: "Unknown guard operation." });
     } catch (error) {

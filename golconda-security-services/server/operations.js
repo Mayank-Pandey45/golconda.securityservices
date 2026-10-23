@@ -25,10 +25,19 @@ export async function requireAdmin(database, authorization) {
 }
 
 function throwRecordWriteError(error, fallback) {
+  if (error.code === "P0002") throw new OperationsRequestError("The requested record was not found. Refresh the list and try again.", 404);
   if (error.code === "55000" && /Compensation history must be retained/.test(error.message || "")) throw new OperationsRequestError("This salary change would remove an existing compensation record for the same effective date. It was not saved. Review a dated salary transition that retains history.", 409);
   if (["55000", "P0001", "23503", "23505", "40P01", "40001"].includes(error.code)) throw new OperationsRequestError("This record or a selected relationship is archived, unavailable, changed concurrently or conflicts with retained history. Refresh, restore records if appropriate, and review assignments. No partial save was confirmed.", 409);
   if (["PGRST202", "42883", "42703"].includes(error.code)) throw new OperationsRequestError("The required database migration is unavailable. Contact the administrator.", 503);
   throw new Error(fallback);
+}
+
+function calendarDate(value, label) {
+  const date = String(value ?? "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new OperationsRequestError(`${label} must be a valid YYYY-MM-DD date.`);
+  const timestamp = Date.parse(`${date}T00:00:00.000Z`);
+  if (!Number.isFinite(timestamp) || new Date(timestamp).toISOString().slice(0, 10) !== date) throw new OperationsRequestError(`${label} must be a valid YYYY-MM-DD date.`);
+  return date;
 }
 
 function idList(value, name) {
@@ -184,6 +193,45 @@ export async function saveEmployee(database, input, actorId) {
   if (error) throwRecordWriteError(error, "Employee details, compensation, and assignments could not be saved.");
   if (!Number.isSafeInteger(Number(data)) || Number(data) <= 0) throw new OperationsRequestError("Employee save was not confirmed. Refresh the record.", employeeId ? 404 : 500);
   return { ok: true, employee_id: data };
+}
+
+export async function exitEmployee(database, input, actorId) {
+  const employeeType = input?.employee_type;
+  if (!new Set(["guard", "supervisor", "field_officer"]).has(employeeType)) throw new OperationsRequestError("Employee type is invalid.");
+  const employeeId = positiveId(input?.employee_id, "Employee");
+  const reason = String(input?.exit_reason ?? "").trim();
+  if (!new Set(["Resigned", "Terminated", "Left Company", "Other"]).has(reason)) throw new OperationsRequestError("Choose a valid employee exit reason.");
+  const lastWorkingDate = calendarDate(input?.last_working_date, "Last working date");
+  const indiaToday = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
+  if (lastWorkingDate > indiaToday) throw new OperationsRequestError("Last working date cannot be in the future.");
+  const remarks = String(input?.remarks ?? "").trim();
+  if (remarks.length > 2000) throw new OperationsRequestError("Remarks must be 2,000 characters or fewer.");
+  if (reason === "Other" && !remarks) throw new OperationsRequestError("Add remarks when the exit reason is Other.");
+  const { data, error } = await database.rpc("exit_employee", {
+    p_employee_type: employeeType, p_employee_id: employeeId, p_exit_reason: reason,
+    p_last_working_date: lastWorkingDate, p_remarks: remarks, p_actor_id: actorId,
+  });
+  if (error) throwRecordWriteError(error, "Employee exit could not be saved. No partial update was confirmed.");
+  if (!data || Number(data.employee_id) !== employeeId || data.status !== "relieved") throw new OperationsRequestError("Employee exit was not confirmed. Refresh before retrying.", 503);
+  return { ok: true, ...data };
+}
+
+export async function closeSite(database, input, actorId) {
+  const siteId = positiveId(input?.site_id, "Site");
+  const reason = String(input?.closure_reason ?? "").trim();
+  if (!reason || reason.length > 200) throw new OperationsRequestError("Closure reason must be 1 to 200 characters.");
+  const endDate = calendarDate(input?.contract_end_date, "Contract end date");
+  const indiaToday = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Kolkata" }).format(new Date());
+  if (endDate > indiaToday) throw new OperationsRequestError("Contract end date cannot be in the future when closing a Site.");
+  const remarks = String(input?.remarks ?? "").trim();
+  if (remarks.length > 2000) throw new OperationsRequestError("Remarks must be 2,000 characters or fewer.");
+  const { data, error } = await database.rpc("close_site", {
+    p_site_id: siteId, p_closure_reason: reason, p_contract_end_date: endDate,
+    p_remarks: remarks, p_actor_id: actorId,
+  });
+  if (error) throwRecordWriteError(error, "Site closure could not be saved. No partial update was confirmed.");
+  if (!data || Number(data.site_id) !== siteId || data.status !== "inactive") throw new OperationsRequestError("Site closure was not confirmed. Refresh before retrying.", 503);
+  return { ok: true, ...data };
 }
 
 export async function saveGuard(database, input, actorId) {

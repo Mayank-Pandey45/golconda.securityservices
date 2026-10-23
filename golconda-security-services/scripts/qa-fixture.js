@@ -1,7 +1,7 @@
 // Local synthetic QA only. No environment database URL, production key or rows are read.
 import express from 'express';
 import { createClient } from '@supabase/supabase-js';
-import { isolatedDatabase, migration, metadata } from '../supabase/tests/isolatedDatabase.js';
+import { isolatedDatabase, migration, lifecycleMigration, metadata } from '../supabase/tests/isolatedDatabase.js';
 import { createApp } from '../server/index.js';
 import { pathToFileURL } from 'node:url';
 
@@ -24,6 +24,7 @@ export async function createQaFixture({port=0}={}){
  const db=await isolatedDatabase();
  await db.exec(`insert into auth.users values ('${QA_ADMIN}'),('${QA_OUTSIDER}');insert into public.admin_users(user_id) values('${QA_ADMIN}');`);
  await db.exec(migration);
+ await db.exec(lifecycleMigration);
  const app=express(),files=new Map(),failures=[];let server;let tail=Promise.resolve();
  // PGlite is one connection: serialize whole transactions, including parallel UI reads.
  const transaction=(role,uid,fn)=>{const run=tail.then(async()=>{await db.exec('begin');try{await db.exec('set local role '+ident(role));await db.query("select set_config('request.jwt.claim.sub',$1,true)",[uid]);const r=await fn();await db.exec('commit');return r;}catch(e){await db.exec('rollback');throw e;}});tail=run.catch(()=>{});return run;};
@@ -77,6 +78,20 @@ export async function createQaFixture({port=0}={}){
 }
 if(process.argv[1]&&import.meta.url===pathToFileURL(process.argv[1]).href){
  const fixture=await createQaFixture();
+ if(process.env.GSS_QA_VISUAL_FIXTURE==='1'){
+  // Explicit opt-in test data for the browser smoke suite. This database exists
+  // only in memory and is never connected to Supabase or production records.
+  const admin=QA_ADMIN,db=fixture.db;
+  const north=(await db.query("insert into public.sites(title,status) values($1,'active') returning id",['QA Synthetic Site North'])).rows[0];
+  const south=(await db.query("insert into public.sites(title,status) values($1,'active') returning id",['QA Synthetic Site South'])).rows[0];
+  const guard=(await db.query("insert into public.guards(full_name,phone,email,designation,status,joining_date,salary_amount,salary_frequency,salary_effective_date) values($1,$2,$3,'Security Guard','active','2025-10-01',22000,'monthly','2025-10-01') returning id",['QA Synthetic Guard','9999900001','qa-guard@example.invalid'])).rows[0];
+  await db.query("insert into public.guard_site_assignments(guard_id,site_id,valid_from,valid_to,assignment_notes,created_by) values($1,$2,'2025-10-01','2026-09-30','Synthetic prior assignment',$3),($1,$4,'2026-10-01',null,'Synthetic current assignment',$3)",[guard.id,north.id,admin,south.id]);
+  await db.query("insert into public.employee_compensation(employee_type,guard_id,gross_monthly_salary,effective_from,notes,created_by) values('guard',$1,22000,'2025-10-01','Synthetic estimate only',$2)",[guard.id,admin]);
+  const first=(await db.query("insert into public.advances(employee_type,guard_id,site_id,amount,occurred_at,payment_mode,description,source,recorded_by) values('guard',$1,$2,2000,'2026-10-05T09:00:00Z','cash','Synthetic advance North','dashboard',$3) returning id",[guard.id,north.id,admin])).rows[0];
+  await db.query("insert into public.advances(employee_type,guard_id,site_id,amount,occurred_at,payment_mode,description,source,recorded_by) values('guard',$1,$2,1500,'2026-10-12T09:00:00Z','online','Synthetic advance South','dashboard',$3),('guard',$1,$4,1000,'2026-10-20T09:00:00Z','cash','Synthetic advance North','dashboard',$3)",[guard.id,south.id,admin,north.id]);
+  await db.query("insert into public.advance_recoveries(advance_id,salary_period,amount,notes,created_by) values($1,'2026-10-01',500,'Synthetic test recovery',$2)",[first.id,admin]);
+  console.log(`Synthetic visual fixture seeded: Guard #${guard.id}; Sites #${north.id}, #${south.id}`);
+ }
  // Vite inherits ONLY synthetic public configuration; never uses the production .env.
  process.env.VITE_SUPABASE_URL='http://127.0.0.1:5187';process.env.VITE_SUPABASE_PUBLISHABLE_KEY=fixture.anonKey;process.env.VITE_API_URL='';
  const {createServer}=await import('vite');const vite=await createServer({server:{host:'127.0.0.1',port:5187,strictPort:true,proxy:Object.fromEntries(['/api','/rest','/auth','/storage'].map(prefix=>[prefix,{target:fixture.url,changeOrigin:true}]))}});await vite.listen();

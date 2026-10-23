@@ -1,4 +1,5 @@
 import RecordActions, { RecordFilter } from "./RecordActions.jsx";
+import LifecycleDialog from "./LifecycleDialog.jsx";
 import { matchesRecordState } from "../../shared/recordLifecycle.js";
 import { queueOrphan } from "./recordClient.js";
 import React, { useEffect, useMemo, useState } from "react";
@@ -71,6 +72,7 @@ export default function PeopleManagement({ employeeType, items = EMPTY_ROWS, sit
   const [allGuards, setAllGuards] = useState(guards);
   const [otherPeople, setOtherPeople] = useState([]);
   const [signedPhotos, setSignedPhotos] = useState({});
+  const [exitTarget, setExitTarget] = useState(null);
 
   useEffect(() => {
     let active = true;
@@ -185,6 +187,13 @@ export default function PeopleManagement({ employeeType, items = EMPTY_ROWS, sit
     } finally { setBusy(false); }
   }
 
+  async function confirmExit(details) {
+    if (!exitTarget) return;
+    await postPeople({ action: "exit", employee_type: employeeType, employee_id: exitTarget.id, ...details });
+    setExitTarget(null); await onRefresh(); await onMetricsRefresh();
+    setMessage(`${exitTarget.full_name} moved to Former Employees. Salary, advance, assignment, and audit history were preserved.`);
+  }
+
 
   const reportingOptions = otherPeople.filter(person => !person.archived_at && person.status === "active");
 
@@ -217,7 +226,7 @@ export default function PeopleManagement({ employeeType, items = EMPTY_ROWS, sit
     </form>
 
     {message && <p className="gss-admin-message" role="status">{message}</p>}
-    <RecordFilter value={recordFilter} onChange={setRecordFilter}/><div className="gss-admin-list-heading"><h3>{title} · {items.length}</h3><div className="people-list-actions"><input className="gss-admin-search" type="search" value={filters.search} onChange={event => setFilters({ ...filters, search: event.target.value })} placeholder="Search name, code, phone, site" aria-label={`Search ${title.toLowerCase()}`}/><select aria-label="Filter by status" value={filters.status} onChange={event => setFilters({ ...filters, status: event.target.value })}><option value="">All statuses</option><option value="active">Active</option><option value="inactive">Inactive</option><option value="on_leave">On leave</option><option value="relieved">Relieved</option></select><button className="gss-admin-secondary" type="button" onClick={onRefresh}><RefreshCw size={15}/> Refresh</button><button className="gss-admin-secondary" type="button" onClick={() => exportPeople(visible, employeeType)}><ArrowDownToLine size={15}/> Export CSV</button></div></div>
+    <RecordFilter value={recordFilter} onChange={setRecordFilter}/><div className="gss-admin-list-heading"><h3>{title} · {items.length}</h3><div className="people-list-actions"><input className="gss-admin-search" type="search" value={filters.search} onChange={event => setFilters({ ...filters, search: event.target.value })} placeholder="Search name, code, phone, site" aria-label={`Search ${title.toLowerCase()}`}/><select aria-label="Filter by status" value={filters.status} onChange={event => setFilters({ ...filters, status: event.target.value })}><option value="">All statuses</option><option value="active">Active</option><option value="inactive">Inactive</option><option value="on_leave">On leave</option><option value="relieved">Former Employees</option></select><button className="gss-admin-secondary" type="button" onClick={onRefresh}><RefreshCw size={15}/> Refresh</button><button className="gss-admin-secondary" type="button" onClick={() => exportPeople(visible, employeeType)}><ArrowDownToLine size={15}/> Export CSV</button></div></div>
     {!visible.length ? <p className="gss-admin-empty">No {title.toLowerCase()} match your search.</p> : <div className="gss-admin-items people-cards">{visible.map(person => <article className="gss-admin-item people-card" key={person.id}>
       <div className="people-avatar">{signedPhotos[person.id] ? <img src={signedPhotos[person.id]} alt={`${person.full_name} private profile`}/> : <Camera size={18}/>}</div>
       <div className="gss-admin-item-copy"><div className="people-name-line"><strong>{person.full_name}</strong><span className={`people-status ${person.status}`}>{String(person.status).replaceAll("_", " ")}</span></div>
@@ -227,8 +236,9 @@ export default function PeopleManagement({ employeeType, items = EMPTY_ROWS, sit
           {person.date_of_birth && <span><b>Date of birth:</b> {person.date_of_birth}</span>}{person.residential_address && <span><b>Address:</b> {person.residential_address}</span>}
         </div>
       </div>
-      <div className="gss-admin-item-actions"><button type="button" disabled={Boolean(person.archived_at)} onClick={() => editPerson(person)}><Pencil size={15}/> Edit</button><RecordActions module={recordModule} item={person} onChanged={async () => { await onRefresh(); await onMetricsRefresh(); }} onEditingDeleted={() => { if (editingId === person.id) resetForm(); }}/></div>
+      <div className="gss-admin-item-actions">{person.status === "active" && !person.archived_at && <button type="button" onClick={() => setExitTarget(person)}>Remove Employee</button>}<button type="button" disabled={Boolean(person.archived_at)} onClick={() => editPerson(person)}><Pencil size={15}/> Edit</button><RecordActions module={recordModule} item={person} onChanged={async () => { await onRefresh(); await onMetricsRefresh(); }} onEditingDeleted={() => { if (editingId === person.id) resetForm(); }}/></div>
     </article>)}</div>}
-    <p className="people-history-note">Deactivated and relieved staff remain in the database with historical assignments. Deletion is available only if the record has no assignment, compensation, or advance history.</p>
+    <p className="people-history-note">Former employees stay available through the status filter. Their compensation, assignment, advance, and audit history is retained.</p>
+    {exitTarget && <LifecycleDialog kind="employee" record={exitTarget} onCancel={() => setExitTarget(null)} onConfirm={confirmExit}/>}
   </div>;
 }

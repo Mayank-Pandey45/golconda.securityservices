@@ -3,6 +3,8 @@
 .gss-admin-shell .record-state{color:#3b657f}.gss-admin-shell .record-feedback{color:#315269!important}.record-actions{max-width:350px}.record-dialog .record-feedback{color:#cfe6f4!important}
 
 .record-dialog label input[type=checkbox]{flex:0 0 auto;width:18px;height:18px}.record-cleanup-row dl>div{display:grid;grid-template-columns:minmax(120px,.5fr) minmax(0,1fr);gap:10px;font-size:13px;margin:7px 0}.record-cleanup-row dd{margin:0;overflow-wrap:anywhere}@media(max-width:540px){.record-cleanup-row dl>div{grid-template-columns:1fr;gap:3px}.record-actions{max-width:100%}}
+.record-dialog-backdrop{overflow-y:auto;overscroll-behavior:contain}.record-dialog{max-height:calc(100dvh - 40px);overflow:auto;overscroll-behavior:contain}.record-dialog input::placeholder,.record-dialog textarea::placeholder{color:var(--color-dialog-placeholder);opacity:1}.record-dialog select option{color:#e8f2fa;background:#10202d}.record-dialog button:disabled{background:#28485e;color:#d3e1e9;border-color:#526d80;opacity:1}.record-dialog button:hover:not(:disabled){background:#1d5578;border-color:#77b5d4}.record-dialog-actions button{min-width:108px}.record-actions button:focus-visible,.record-dialog button:focus-visible{outline:2px solid #65bef0;outline-offset:3px}
+.lifecycle-form{display:grid;gap:8px}.lifecycle-form>p{margin:0 0 5px;color:#cbdbe5}.lifecycle-form label{margin:5px 0}.lifecycle-form input[readonly]{color:#d7e6ef;background:#122b3b}.lifecycle-form .lifecycle-error{margin:6px 0 0;padding:10px;color:#ffe3df;background:#4b2425;border:1px solid #a8524d;border-radius:5px;font-size:13px}
 
 /* Long account identifiers must wrap without widening every admin module. */
 .gss-admin-shell .record-filter{color:#475467}

@@ -1,4 +1,5 @@
 import RecordActions, { RecordFilter } from "./RecordActions.jsx";
+import LifecycleDialog from "./LifecycleDialog.jsx";
 import { matchesRecordState } from "../../shared/recordLifecycle.js";
 import { queueOrphan } from "./recordClient.js";
 import React, { useEffect, useMemo, useState } from "react";
@@ -105,6 +106,8 @@ export default function GuardManagement({ items = [], sites = [], search = "", o
   const [photoFile, setPhotoFile] = useState(null);
   const [compensation, setCompensation] = useState([]);
   const [signedPhotos, setSignedPhotos] = useState({});
+  const [exitTarget, setExitTarget] = useState(null);
+  const [exitFromProfile, setExitFromProfile] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -123,6 +126,31 @@ export default function GuardManagement({ items = [], sites = [], search = "", o
     loadPrivateProfiles();
     return () => { active = false; };
   }, [items]);
+
+  useEffect(() => {
+    const requestedId = new URLSearchParams(window.location.search).get("exitGuard");
+    if (!requestedId || !items.length) return;
+    const requestedGuard = items.find(item => String(item.id) === requestedId);
+    if (!requestedGuard) return;
+    setExitTarget(requestedGuard);
+    setExitFromProfile(true);
+  }, [items]);
+
+  async function confirmExit(details) {
+    if (!exitTarget) return;
+    const result = await postGuard({ action: "exit", guard_id: exitTarget.id, ...details });
+    await onRefresh(); await onMetricsRefresh();
+    setMessage(`${exitTarget.full_name} moved to Former Employees. Salary, advance, assignment, and audit history were preserved.`);
+    setExitTarget(null);
+    if (exitFromProfile) window.history.replaceState({}, "", `/?guard=${encodeURIComponent(exitTarget.id)}`);
+    setExitFromProfile(false);
+    return result;
+  }
+
+  function cancelExit() {
+    if (exitFromProfile && exitTarget) window.history.replaceState({}, "", `/?guard=${encodeURIComponent(exitTarget.id)}`);
+    setExitTarget(null); setExitFromProfile(false);
+  }
 
   const compensationByGuard = useMemo(() => {
     const result = new Map();
@@ -161,6 +189,17 @@ export default function GuardManagement({ items = [], sites = [], search = "", o
     setMessage("");
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
+
+  useEffect(() => {
+    const requestedId = new URLSearchParams(window.location.search).get("editGuard");
+    if (!requestedId || !items.length) return;
+    const requestedGuard = items.find(item => String(item.id) === requestedId);
+    if (!requestedGuard) return;
+    startEditing(requestedGuard);
+    const next = new URLSearchParams(window.location.search);
+    next.delete("editGuard");
+    window.history.replaceState({}, "", `${window.location.pathname}?${next.toString()}`);
+  }, [items]);
 
   async function saveGuard(event) {
     event.preventDefault();
@@ -364,14 +403,15 @@ export default function GuardManagement({ items = [], sites = [], search = "", o
 
     {message && <p className="gss-admin-message" role="status">{message}</p>}
     <div className="guard-list-toolbar"><div className="guard-module-heading"><div><h3>Guard directory</h3><p>{visibleItems.length} shown · {items.length} total</p></div><button type="button" className="gss-admin-secondary" onClick={onRefresh} disabled={busy}><RefreshCw size={15}/> Refresh from database</button></div>
-      <RecordFilter value={recordFilter} onChange={setRecordFilter}/><div className="guard-filters"><input className="gss-admin-search" type="search" value={search} onChange={event => onSearchChange(event.target.value)} placeholder="Search name, phone, designation, site" aria-label="Search guards"/><select value={filters.status} onChange={event => setFilters({ ...filters, status: event.target.value })} aria-label="Filter by guard status"><option value="">All statuses</option><option value="active">Active</option><option value="inactive">Inactive</option><option value="on_leave">On leave</option><option value="relieved">Relieved</option></select><select value={filters.designation} onChange={event => setFilters({ ...filters, designation: event.target.value })} aria-label="Filter by designation"><option value="">All designations</option>{designations.map(value => <option key={value}>{value}</option>)}</select><select value={filters.site_id} onChange={event => setFilters({ ...filters, site_id: event.target.value })} aria-label="Filter by assigned site"><option value="">All sites</option>{sites.filter(site => !site.archived_at && site.status !== "inactive").map(site => <option key={site.id} value={site.id}>{site.title}</option>)}</select></div>
+      <RecordFilter value={recordFilter} onChange={setRecordFilter}/><div className="guard-filters"><input className="gss-admin-search" type="search" value={search} onChange={event => onSearchChange(event.target.value)} placeholder="Search name, phone, designation, site" aria-label="Search guards"/><select value={filters.status} onChange={event => setFilters({ ...filters, status: event.target.value })} aria-label="Filter by guard status"><option value="">All statuses</option><option value="active">Active</option><option value="inactive">Inactive</option><option value="on_leave">On leave</option><option value="relieved">Former Employees</option></select><select value={filters.designation} onChange={event => setFilters({ ...filters, designation: event.target.value })} aria-label="Filter by designation"><option value="">All designations</option>{designations.map(value => <option key={value}>{value}</option>)}</select><select value={filters.site_id} onChange={event => setFilters({ ...filters, site_id: event.target.value })} aria-label="Filter by assigned site"><option value="">All sites</option>{sites.filter(site => !site.archived_at && site.status !== "inactive").map(site => <option key={site.id} value={site.id}>{site.title}</option>)}</select></div>
     </div>
     {visibleItems.length === 0 ? <p className="gss-admin-empty">No guards match the selected filters.</p> : <div className="gss-admin-items">{visibleItems.map(item => {
       const currentSalary = compensationByGuard.get(String(item.id));
       return <article className="gss-admin-item" key={item.id}>
-        <div className="gss-admin-item-copy"><div className="people-name-line">{signedPhotos[item.id] ? <img className="guard-profile-photo" src={signedPhotos[item.id]} alt={`${item.full_name} private profile`}/> : <span className="guard-profile-photo-empty"><Camera size={17}/></span>}<strong>{item.full_name}</strong><span className={`people-status ${item.status}`}>{statusLabel(item.status)}</span></div><p>{item.employee_code || "No employee code"} · {item.designation}</p><div className="site-details"><span><b>Phone:</b> {item.phone}</span><span><b>Email:</b> {item.email || "—"}</span><span><b>Sites:</b> {item.site_records?.map(site => site.title).join(", ") || "Unassigned"}</span><span><b>Joined:</b> {item.joining_date || "—"}</span><span><b>End date:</b> {item.employment_end_date || "—"}</span>{item.date_of_birth && <span><b>Date of birth:</b> {item.date_of_birth}</span>}{item.residential_address && <span><b>Address:</b> {item.residential_address}</span>}</div><div className="site-details guard-private-details"><span><b>Configured pay:</b> {formatSalary(item.salary_amount, item.salary_frequency)}</span><span><b>Payroll monthly gross:</b> {currentSalary ? formatSalary(currentSalary.gross_monthly_salary, "monthly") : "Not configured"}</span><span><b>Effective:</b> {currentSalary?.effective_from || item.salary_effective_date || "—"}</span>{item.salary_notes && <span><b>Private notes:</b> {item.salary_notes}</span>}</div><small>{item.created_at ? `Added: ${new Date(item.created_at).toLocaleDateString()}` : ""}</small></div>
-        <div className="gss-admin-item-actions"><button type="button" disabled={Boolean(item.archived_at)} onClick={() => startEditing(item)} aria-label={`Edit ${item.full_name}`}><Pencil size={15}/> Edit</button><RecordActions module={"guards"} item={item} onChanged={async () => { await onRefresh(); await onMetricsRefresh(); }} onEditingDeleted={() => { if (editingId === item.id) resetForm(); }}/></div>
+        <div className="gss-admin-item-copy"><div className="people-name-line">{signedPhotos[item.id] ? <img className="guard-profile-photo" src={signedPhotos[item.id]} alt={`${item.full_name} private profile`}/> : <span className="guard-profile-photo-empty"><Camera size={17}/></span>}<a className="guard-profile-link" href={`/?guard=${encodeURIComponent(item.id)}`}>{item.full_name}</a><span className={`people-status ${item.status}`}>{statusLabel(item.status)}</span></div><p>{item.employee_code || "No employee code"} · {item.designation}</p><div className="site-details"><span><b>Phone:</b> {item.phone}</span><span><b>Email:</b> {item.email || "—"}</span><span><b>Sites:</b> {item.site_records?.map(site => site.title).join(", ") || "Unassigned"}</span><span><b>Joined:</b> {item.joining_date || "—"}</span><span><b>End date:</b> {item.employment_end_date || "—"}</span>{item.date_of_birth && <span><b>Date of birth:</b> {item.date_of_birth}</span>}{item.residential_address && <span><b>Address:</b> {item.residential_address}</span>}</div><div className="site-details guard-private-details"><span><b>Configured pay:</b> {formatSalary(item.salary_amount, item.salary_frequency)}</span><span><b>Payroll monthly gross:</b> {currentSalary ? formatSalary(currentSalary.gross_monthly_salary, "monthly") : "Not configured"}</span><span><b>Effective:</b> {currentSalary?.effective_from || item.salary_effective_date || "—"}</span>{item.salary_notes && <span><b>Private notes:</b> {item.salary_notes}</span>}</div><small>{item.created_at ? `Added: ${new Date(item.created_at).toLocaleDateString()}` : ""}</small></div>
+        <div className="gss-admin-item-actions"><a className="gss-admin-secondary" href={`/?guard=${encodeURIComponent(item.id)}`}>View Profile</a>{item.status === "active" && !item.archived_at && <button type="button" onClick={() => { setExitTarget(item); setExitFromProfile(false); }}>Remove Employee</button>}<button type="button" disabled={Boolean(item.archived_at)} onClick={() => startEditing(item)} aria-label={`Edit ${item.full_name}`}><Pencil size={15}/> Edit</button><RecordActions module={"guards"} item={item} onChanged={async () => { await onRefresh(); await onMetricsRefresh(); }} onEditingDeleted={() => { if (editingId === item.id) resetForm(); }}/></div>
       </article>;
     })}</div>}
+    {exitTarget && <LifecycleDialog kind="employee" record={exitTarget} onCancel={cancelExit} onConfirm={confirmExit}/>}
   </div>;
 }

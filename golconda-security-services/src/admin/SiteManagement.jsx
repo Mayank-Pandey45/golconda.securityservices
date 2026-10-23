@@ -1,4 +1,5 @@
 import RecordActions, { RecordFilter } from "./RecordActions.jsx";
+import LifecycleDialog from "./LifecycleDialog.jsx";
 import { matchesRecordState } from "../../shared/recordLifecycle.js";
 import React, { useMemo, useState } from "react";
 import { ArrowDownToLine, Building2, Check, FileSpreadsheet, Pencil, Plus, RefreshCw, Upload, X } from "lucide-react";
@@ -51,8 +52,11 @@ export default function SiteManagement({ items = [], guards = [], supervisors = 
   const [busy, setBusy] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
   const [preview, setPreview] = useState(null);
+  const [closeTarget, setCloseTarget] = useState(null);
 
   const visibleSites = useMemo(() => items.filter(site => matchesRecordState("sites", site, recordFilter) && `${site.site_code || ""} ${site.title || ""} ${site.service_taken || ""}`.toLowerCase().includes(search.toLowerCase())), [items, search, recordFilter]);
+  const currentSites = visibleSites.filter(site => !site.closure_date);
+  const closedSites = visibleSites.filter(site => Boolean(site.closure_date));
   const previewCounts = preview?.sites.reduce((counts, site) => ({ ...counts, [site.state]: counts[site.state] + 1 }), { create: 0, update: 0 }) || { create: 0, update: 0 };
 
   function resetForm() { setForm(emptyForm); setEditingId(null); }
@@ -87,6 +91,14 @@ export default function SiteManagement({ items = [], guards = [], supervisors = 
       setMessage(`Site and assignments saved (site ${result.site_id}).`);
     } catch (error) { setMessage(error.message); }
     finally { setBusy(false); }
+  }
+
+  async function confirmClose(details) {
+    if (!closeTarget) return;
+    await apiPost("/api/operations/sites", { action: "close", site_id: closeTarget.id, ...details });
+    const closedName = closeTarget.title;
+    setCloseTarget(null); await onRefresh(); await onMetricsRefresh();
+    setMessage(`${closedName} is closed. Staff assignments ended and employee and financial history was retained.`);
   }
 
 
@@ -161,14 +173,16 @@ export default function SiteManagement({ items = [], guards = [], supervisors = 
 
     {message && <p className="gss-admin-message" role="status">{message}</p>}
     <div className="gss-admin-list-heading"><h3>Sites & deployments · {items.length}</h3><div className="site-list-controls"><input className="gss-admin-search" type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Search code, site or service" aria-label="Search sites"/><button className="gss-admin-secondary" type="button" onClick={onRefresh}><RefreshCw size={15}/> Refresh</button><button className="gss-admin-secondary" type="button" onClick={() => downloadFile(siteRecordsToCsv(items), "golconda-sites.csv", "text/csv;charset=utf-8")}><ArrowDownToLine size={15}/> Export CSV</button></div></div>
-    <RecordFilter value={recordFilter} onChange={setRecordFilter}/>{!visibleSites.length ? <p className="gss-admin-empty">No sites match your search.</p> : <div className="gss-admin-items site-card-list">{visibleSites.map(site => <article className="gss-admin-item" key={site.id}>
-      <div className="gss-admin-item-copy"><div className="site-title-line"><Building2 size={17}/><strong>{site.title}</strong><span className={`site-status ${site.status || "active"}`}>{site.status || "active"}</span></div>
+    <RecordFilter value={recordFilter} onChange={setRecordFilter}/>{!visibleSites.length ? <p className="gss-admin-empty">No sites match your search.</p> : <div className="gss-admin-items site-card-list">{currentSites.map(site => <article className="gss-admin-item" key={site.id}>
+      <div className="gss-admin-item-copy"><div className="site-title-line"><Building2 size={17}/><a className="site-profile-link" href={`/?site=${encodeURIComponent(site.id)}`}>{site.title}</a><span className={`site-status ${site.status || "active"}`}>{site.status || "active"}</span></div>
         <p>{site.site_code || "No site code"} · {site.service_taken || "Service unspecified"}</p>
         <div className="site-details"><span><b>Phones:</b> {site.phone_numbers || "None"}</span><span><b>Emails:</b> {site.given_emails || "None"}</span><span><b>Guard billing:</b> {site.security_guard_monthly_billing == null ? "Not configured" : `₹${Number(site.security_guard_monthly_billing).toLocaleString("en-IN")}`}</span><span><b>ASO billing:</b> {site.aso_monthly_billing == null ? "Not configured" : `₹${Number(site.aso_monthly_billing).toLocaleString("en-IN")}`}</span>
-          <span><b>Guards:</b> {site.guard_records?.map(person => `${person.full_name} (${person.status})`).join(", ") || "None"}</span><span><b>Supervisors:</b> {site.supervisor_records?.map(person => person.full_name).join(", ") || "None"}</span><span><b>Field officers:</b> {site.field_officer_records?.map(person => person.full_name).join(", ") || "None"}</span>
+          <span><b>Guards:</b> {site.guard_records?.length ? site.guard_records.map(person => <React.Fragment key={person.id}><a className="site-guard-profile-link" href={`/?guard=${encodeURIComponent(person.id)}`}>{person.full_name}</a> ({person.status}) </React.Fragment>) : "None"}</span><span><b>Supervisors:</b> {site.supervisor_records?.map(person => person.full_name).join(", ") || "None"}</span><span><b>Field officers:</b> {site.field_officer_records?.map(person => person.full_name).join(", ") || "None"}</span>
         </div>
       </div>
-      <div className="gss-admin-item-actions"><button type="button" disabled={Boolean(site.archived_at)} onClick={() => editSite(site)}><Pencil size={15}/> Edit</button><RecordActions module={"sites"} item={site} onChanged={async () => { await onRefresh(); await onMetricsRefresh(); }} onEditingDeleted={() => { if (editingId === site.id) resetForm(); }}/></div>
+      <div className="gss-admin-item-actions"><a className="gss-admin-secondary" href={`/?site=${encodeURIComponent(site.id)}`}>View Site</a><button type="button" disabled={Boolean(site.archived_at)} onClick={() => editSite(site)}><Pencil size={15}/> Edit</button>{!site.archived_at && <button type="button" onClick={() => setCloseTarget(site)}>Close Site</button>}<RecordActions module={"sites"} item={site} onChanged={async () => { await onRefresh(); await onMetricsRefresh(); }} onEditingDeleted={() => { if (editingId === site.id) resetForm(); }}/></div>
     </article>)}</div>}
+    {closedSites.length > 0 && <details className="closed-sites"><summary>Closed Sites · {closedSites.length}</summary><div className="gss-admin-items site-card-list">{closedSites.map(site => <article className="gss-admin-item" key={site.id}><div className="gss-admin-item-copy"><div className="site-title-line"><Building2 size={17}/><a className="site-profile-link" href={`/?site=${encodeURIComponent(site.id)}`}>{site.title}</a><span className="site-status inactive">Closed</span></div><p>{site.site_code || "No site code"} · Contract ended {site.closure_date}</p><div className="site-details"><span><b>Reason:</b> {site.closure_reason || "Not recorded"}</span><span><b>Remarks:</b> {site.closure_remarks || "None"}</span></div></div><div className="gss-admin-item-actions"><a className="gss-admin-secondary" href={`/?site=${encodeURIComponent(site.id)}`}>View Site History</a></div></article>)}</div></details>}
+    {closeTarget && <LifecycleDialog kind="site" record={closeTarget} onCancel={() => setCloseTarget(null)} onConfirm={confirmClose}/>}
   </div>;
 }

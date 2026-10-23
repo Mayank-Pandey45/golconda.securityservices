@@ -29,6 +29,7 @@
 .site-card-list { margin-top: 12px; }
 .site-title-line { display: flex; align-items: center; gap: 8px; color: #1e293b; }
 .site-title-line svg { color: #a97828; flex: 0 0 auto; }
+.site-profile-link{color:#145b83;font-weight:800;text-decoration:underline;text-underline-offset:3px;overflow-wrap:anywhere}.site-profile-link:focus-visible{outline:2px solid #126b9b;outline-offset:3px}.closed-sites{border:1px solid #dbe3ea;border-radius:10px;padding:12px;background:#f8fafc}.closed-sites summary{min-height:40px;display:flex;align-items:center;cursor:pointer;color:#34495e;font-weight:700}.closed-sites .site-details{margin-top:8px}
 .site-status { border-radius: 4px; text-transform: capitalize; font-size: 10px; font-weight: 700; padding: 3px 6px; background: #dcfce7; color: #166534; }
 .site-status.inactive { background: #e2e8f0; color: #475569; }
 @media(max-width: 680px) { .site-module-heading { display: grid; } .site-list-controls { justify-content: flex-start; } .site-list-controls .gss-admin-search { width: 100%; } }

@@ -31,6 +31,7 @@
 .guard-filters{display:grid;grid-template-columns:minmax(200px,2fr) repeat(3,minmax(140px,1fr));gap:9px}
 .guard-filters select{border:1px solid #d8dee8;border-radius:8px;padding:10px 12px;background:#fff;color:#334155;font:inherit;font-size:12px}
 .guard-private-details{background:#fffcf5!important;border-color:#eadcb8!important}
+.guard-profile-link{color:#145b83!important;text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:3px;font-weight:800}.guard-profile-link:focus-visible,.site-guard-profile-link:focus-visible{outline:2px solid #126b9b;outline-offset:3px;border-radius:2px}.site-guard-profile-link{color:#145b83;font-weight:700;text-decoration:underline;text-underline-offset:2px}
 .guard-site-checks{grid-column:1/-1;border:1px solid #dbe3ea;border-radius:9px;padding:12px;min-width:0}
 .guard-site-checks legend{padding:0 5px;font-size:13px;font-weight:700;color:#334155}
 .guard-site-checks>div{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:7px;max-height:210px;overflow:auto}

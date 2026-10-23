@@ -60,6 +60,36 @@ test('real HTTP API -> synthetic PostgreSQL: all module lifecycles, finance and 
    r=(await rows(e.table)).find(x=>x.id===e.id);assert.equal(r.archived_at,null);assert.equal(r.status,'inactive');assert.equal(r.joining_date,'2026-04-10');
    assert.equal((await rows('advances')).length,3);assert.equal((await rows('employee_compensation')).length,3);
   });
+  await t.test('Site closure ends assignments atomically without changing employment or deleting financial history',async()=>{
+   const guard=employees.find(employee=>employee.type==='guard');
+   await ok('/api/operations/guards',{action:'save',guard_id:guard.id,person:{...guard.person,status:'active',employment_end_date:null},site_ids:[siteA]});
+   const today=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Kolkata'}).format(new Date());
+   const closure={action:'close',site_id:siteA,closure_reason:'Contract expired',contract_end_date:today,remarks:'Synthetic QA closure'};
+   const result=await ok('/api/operations/sites',closure);assert.equal(result.status,'inactive');
+   const savedSite=(await rows('sites')).find(row=>row.id===siteA);assert.equal(savedSite.closure_reason,'Contract expired');assert.equal(String(savedSite.closure_date).slice(0,10),today);
+   const assignment=(await rows('guard_site_assignments')).find(row=>row.guard_id===guard.id&&row.site_id===siteA);assert.equal(assignment.valid_to,today);
+   assert.equal((await rows('guards')).find(row=>row.id===guard.id).status,'active');assert.equal((await rows('advances')).length,3);
+   assert.equal((await ok('/api/operations/sites',closure)).already_applied,true);
+   assert.equal((await request('/api/operations/sites',{...closure,closure_reason:''})).status,400);
+  });
+  await t.test('employee exit supports all roles, retains finance, ends active assignments, and retries safely',async()=>{
+   const today=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Kolkata'}).format(new Date());
+   for(const employee of employees){
+    const isGuard=employee.type==='guard',path=isGuard?'/api/operations/guards':'/api/operations/people',idKey=isGuard?'guard_id':'employee_id';
+    await ok(path,{action:'save',[idKey]:employee.id,...(isGuard?{}:{employee_type:employee.type}),person:{...employee.person,status:'active',employment_end_date:null},site_ids:[siteB],reporting_ids:[]});
+    const body={action:'exit',[idKey]:employee.id,...(isGuard?{}:{employee_type:employee.type}),exit_reason:'Left Company',last_working_date:today,remarks:'Synthetic QA exit'};
+    const saved=await ok(path,body);assert.equal(saved.status,'relieved');
+    const person=(await rows(employee.table)).find(row=>row.id===employee.id);assert.equal(person.status,'relieved');assert.equal(person.employment_end_date,today);assert.equal(person.exit_reason,'Left Company');
+    const assignmentTable=employee.type==='guard'?'guard_site_assignments':`${employee.type}_site_assignments`,fk=employee.type==='guard'?'guard_id':employee.type==='supervisor'?'supervisor_id':'field_officer_id';
+    assert.equal((await rows(assignmentTable)).filter(row=>row[fk]===employee.id&&row.valid_to===null).length,0);
+    assert.equal((await ok(path,body)).already_applied,true);
+    assert.equal((await rows('advances')).length,3);
+   }
+   const guard=employees.find(employee=>employee.type==='guard');
+   assert.equal((await request('/api/operations/guards',{action:'exit',guard_id:guard.id,exit_reason:'Other',last_working_date:today,remarks:''})).status,400);
+   const [year,month]=today.split('-').map(Number),nextPeriod=new Date(Date.UTC(year,month,1)).toISOString().slice(0,7);
+   const nextPayroll=await ok('/api/operations/payroll?period='+nextPeriod);for(const employee of employees){const row=nextPayroll.employees.find(item=>item.employee_type===employee.type&&item.employee_id===employee.id);assert.equal(row.gross_for_period,0);}
+  });
   await t.test('Site archive/restore and delete conflict preserve employee and financial identities',async()=>{
    await action('sites',siteB,'archive');assert.equal((await request('/api/operations/records',{module:'sites',id:siteB,action:'delete',confirmation:'DELETE '+siteB})).status,409);await action('sites',siteB,'restore');
    assert.equal((await rows('sites')).find(x=>x.id===siteB).status,'inactive');for(const e of employees)assert.ok((await rows(e.table)).some(x=>x.id===e.id));assert.equal((await rows('advances')).length,3);
