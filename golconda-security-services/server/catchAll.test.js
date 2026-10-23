@@ -91,38 +91,59 @@ test('explicit Vercel wildcard rewrite targets one stable function for every nes
   const notFound = response(); handler(request('/api/unknown?__route=operations/guards'), notFound); assert.equal(notFound.statusCode, 404);
 });
 
-test('production Telegram webhook rewrite reaches the real handler and rejects an invalid secret', async () => {
+test('production Telegram webhook rewrite enforces the secret and accepts /start without admin auth', async () => {
   const { createServer } = await import('node:http');
   const { readFile } = await import('node:fs/promises');
   const config = JSON.parse(await readFile(new URL('../vercel.json', import.meta.url), 'utf8'));
   const rewrite = config.rewrites.find(item => item.source === '/api/integrations/telegram');
   assert.deepEqual(rewrite, { source: '/api/integrations/telegram', destination: '/api/index?__route=integrations/telegram' });
 
-  let outboundTelegramRequests = 0;
+  const webhookSecret = 'synthetic-webhook-secret-long-enough-for-tests';
+  const outboundTelegramRequests = [];
   const app = createApp({
     database: {},
-    env: { TELEGRAM_BOT_TOKEN: 'synthetic-test-token', TELEGRAM_WEBHOOK_SECRET: 'synthetic-webhook-secret-long-enough-for-tests' },
-    fetchImpl: async () => { outboundTelegramRequests += 1; throw new Error('Unexpected Telegram API request'); },
+    env: { TELEGRAM_BOT_TOKEN: 'synthetic-test-token', TELEGRAM_WEBHOOK_SECRET: webhookSecret },
+    fetchImpl: async (url, options) => {
+      outboundTelegramRequests.push({ method: url.split('/').at(-1), body: JSON.parse(options.body) });
+      return { ok: true, async json() { return { ok: true, result: { message_id: 321 } }; } };
+    },
     staticFiles: false,
     parseBody: false,
     intakeLimiter: (_req, _res, next) => next(),
   });
   const handler = createCatchAllHandler(app);
-  const server = createServer((req, res) => {
+  const server = createServer(async (req, res) => {
     const rewritten = new URL(rewrite.destination, 'http://local');
     req.url = rewritten.pathname + rewritten.search;
     req.query = Object.fromEntries(rewritten.searchParams.entries());
-    req.body = {};
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    req.body = JSON.parse(Buffer.concat(chunks).toString('utf8'));
     handler(req, res);
   });
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   try {
-    const result = await fetch(`http://127.0.0.1:${server.address().port}/api/integrations/telegram`, {
-      method: 'POST', headers: { 'content-type': 'application/json', 'x-telegram-bot-api-secret-token': 'invalid-synthetic-secret' }, body: '{}',
+    const endpoint = `http://127.0.0.1:${server.address().port}/api/integrations/telegram`;
+    const invalid = await fetch(endpoint, {
+      method: 'POST', headers: { 'content-type': 'application/json', 'X-Telegram-Bot-Api-Secret-Token': 'invalid-synthetic-secret' }, body: '{}',
     });
-    assert.equal(result.status, 401);
-    assert.deepEqual(await result.json(), { error: 'Webhook authentication failed.' });
-    assert.equal(outboundTelegramRequests, 0);
+    assert.equal(invalid.status, 401);
+    assert.deepEqual(await invalid.json(), { error: 'Webhook authentication failed.' });
+    assert.equal(outboundTelegramRequests.length, 0);
+
+    const started = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'X-Telegram-Bot-Api-Secret-Token': webhookSecret },
+      body: JSON.stringify({ update_id: 987654, message: {
+        date: Math.floor(Date.now() / 1000), text: '/start', from: { id: 456789 }, chat: { id: 456789, type: 'private' },
+      } }),
+    });
+    assert.equal(started.status, 200);
+    assert.deepEqual(await started.json(), { ok: true });
+    assert.equal(outboundTelegramRequests.length, 1);
+    assert.equal(outboundTelegramRequests[0].method, 'sendMessage');
+    assert.equal(outboundTelegramRequests[0].body.chat_id, 456789);
+    assert.match(outboundTelegramRequests[0].body.text, /To link:/);
   } finally { await new Promise(resolve => server.close(resolve)); }
 });
 
