@@ -4,6 +4,17 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#090c0e" />
+    <script>
+      try {
+        const savedTheme = localStorage.getItem("gss-admin-theme-v1");
+        const initialTheme = savedTheme === "dark" || savedTheme === "light"
+          ? savedTheme
+          : (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+        document.documentElement.dataset.adminTheme = initialTheme;
+      } catch {
+        document.documentElement.dataset.adminTheme = "light";
+      }
+    </script>
     <meta name="description" content="Golconda Security Services provides security guard deployment, ASO services, web security and cyber awareness from Secunderabad, Telangana. Contact our team to confirm current service coverage." />
     <link rel="canonical" href="https://golconda-securityservices.vercel.app/" />
     <link rel="icon" type="image/png" href="/gss-logo.png" />

@@ -94,6 +94,32 @@ test("admin primary, secondary, disabled, and destructive button colors meet AA 
   assert.match(adminStyles, /\.gss-admin-item-actions button\.danger\{color:#b42318/);
 });
 
+test("dark and light admin themes persist, cover dashboard surfaces, and keep key button states at AA", async () => {
+  const app = await readFile(new URL("./main.jsx", import.meta.url), "utf8");
+  const html = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  const themeCss = await readFile(new URL("./admin/adminTheme.css", import.meta.url), "utf8");
+  assert.match(app, /data-theme=\{adminTheme\}/);
+  assert.match(app, /gss-admin-theme-toggle/);
+  assert.match(app, /setAdminTheme\(current => current === "dark" \? "light" : "dark"\)/);
+  assert.match(app, /localStorage\.setItem\("gss-admin-theme-v1"/);
+  assert.match(html, /localStorage\.getItem\("gss-admin-theme-v1"\)/);
+  assert.match(html, /prefers-color-scheme: dark/);
+  for (const surface of ["gss-admin-nav", "gss-admin-panel", "advances-table", "guard-profile-section", "site-profile-section", "record-dialog"]) {
+    assert.ok(themeCss.includes(surface), `missing theme styling for ${surface}`);
+  }
+  assert.match(themeCss, /\.gss-admin-shell\[data-theme="dark"\] \.gss-admin-stats>div\{[^}]*background:#1a2a3d!important/);
+  const pairs = [
+    ["edf3f9", "1a2a3e"],
+    ["edf3f9", "273b52"],
+    ["17202c", "dfbd71"],
+    ["b4c0ce", "253447"],
+    ["ffcfca", "4a2929"],
+  ];
+  for (const [foreground, background] of pairs) {
+    assert.ok(contrast(foreground, background) >= 4.5, `dark-mode button contrast failed: #${foreground} on #${background}`);
+  }
+});
+
 test("shared control and confirmation-dialog text, focus, disabled, and hover styles stay readable", async () => {
   const tokens = tokensFrom(css);
   const placeholder = tokens["--color-control-muted"];

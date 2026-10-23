@@ -66,6 +66,45 @@ test("approved additions and deductions set the available salary cap", () => {
   assert.equal(deductionsExceedPay.net_payable_after_proposed_recovery, 0);
 });
 
+test("Total Salary uses the configured monthly amount and subtracts one capped advance proposal", () => {
+  const examples = [
+    ["19000.00", "1000.00", 18000],
+    ["18500.00", "1000.00", 17500],
+    ["36000.01", "0.00", 36000.01],
+  ];
+  for (const [salary, advance, expected] of examples) {
+    const result = calculatePayrollRecovery(row({
+      total_salary: salary,
+      remaining_advance_balance: advance,
+      joining_date: "2026-10-20",
+      employment_end_date: "2026-10-24",
+    }));
+    assert.equal(result.total_salary, Number(salary));
+    assert.equal(result.net_payable_after_proposed_recovery, expected);
+  }
+});
+
+test("finalized and proposed recovery, adjustments, and eligibility do not double deduct", () => {
+  const result = calculatePayrollRecovery(row({
+    total_salary: "19000.00",
+    approved_additions: "1500.00",
+    approved_deductions: "500.00",
+    recovered_period: "500.00",
+    remaining_advance_balance: "500.00",
+  }));
+  assert.equal(result.proposed_advance_recovery, 500);
+  assert.equal(result.net_payable_after_proposed_recovery, 19000);
+
+  const notEligible = calculatePayrollRecovery(row({
+    total_salary: "19000.00",
+    salary_eligible: false,
+    remaining_advance_balance: "25000.00",
+  }));
+  assert.equal(notEligible.total_salary, 0);
+  assert.equal(notEligible.proposed_advance_recovery, 0);
+  assert.equal(notEligible.net_payable_after_proposed_recovery, 0);
+});
+
 test("same recovery calculation covers guards, supervisors, field officers and transferred staff", () => {
   const rows = enrichPayrollRows([
     row({ employee_type: "guard", employee_id: 7, remaining_advance_balance: 1000, site_ids: [11, 12] }),
@@ -76,13 +115,31 @@ test("same recovery calculation covers guards, supervisors, field officers and t
   assert.deepEqual(rows.map(item => item.net_payable_after_proposed_recovery), [17500, 22000, 25000]);
 });
 
-test("period-specific gross, including proration and dated salary changes, drives proposals", () => {
-  const october = calculatePayrollRecovery(row({ gross_for_period: 9200, remaining_advance_balance: 5000, employment_end_date: "2026-10-15" }));
-  const november = calculatePayrollRecovery(row({ gross_for_period: 19000, remaining_advance_balance: 5000 }));
-  assert.equal(october.proposed_advance_recovery, 5000);
-  assert.equal(october.net_payable_after_proposed_recovery, 4200);
-  assert.equal(november.proposed_advance_recovery, 5000);
-  assert.equal(november.net_payable_after_proposed_recovery, 14000);
+test("joining and exit dates do not prorate eligible monthly salary; month eligibility is explicit", () => {
+  const midMonthJoiner = calculatePayrollRecovery(row({
+    total_salary: 19000,
+    gross_for_period: 5516.13,
+    joining_date: "2026-10-20",
+    salary_eligible: true,
+    remaining_advance_balance: 1000,
+  }));
+  const midMonthExit = calculatePayrollRecovery(row({
+    total_salary: 19000,
+    employment_end_date: "2026-10-15",
+    salary_eligible: true,
+  }));
+  const notYetJoined = calculatePayrollRecovery(row({
+    total_salary: 19000,
+    salary_eligible: false,
+    salary_eligibility_status: "Not eligible for selected month",
+  }));
+  assert.equal(midMonthJoiner.total_salary, 19000);
+  assert.equal(midMonthJoiner.proposed_advance_recovery, 1000);
+  assert.equal(midMonthJoiner.net_payable_after_proposed_recovery, 18000);
+  assert.equal(midMonthExit.total_salary, 19000);
+  assert.equal(midMonthExit.net_payable_after_proposed_recovery, 19000);
+  assert.equal(notYetJoined.total_salary, 0);
+  assert.equal(notYetJoined.salary_eligibility_status, "Not eligible for selected month");
 });
 
 test("a proposal is repeatable and does not mutate finalized recovery or ledger balances", () => {

@@ -25,4 +25,11 @@
 .advances-recovery-unavailable{margin:0;padding:10px 12px;border:1px solid #cbd5e1;border-radius:6px;background:#f1f5f9;color:#334155;font-size:12px;line-height:1.5}
 .advances-pagination{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-top:12px;font-size:11px;color:#64748b}
 .advances-pagination span{margin-right:auto}
+.advances-payroll-table{min-width:1510px;font-variant-numeric:tabular-nums}
+.advances-payroll-table th:not(:first-child),.advances-payroll-table td:not(:first-child){text-align:right;white-space:nowrap}
+.advances-payroll-table td:first-child{min-width:175px;text-align:left;white-space:normal}
+.advances-payroll-table .payroll-net-cell{background:#fffaf0;color:#573e12}
+.advances-payroll-table .payroll-net-cell b{font-size:13px;color:#573e12}
+.advances-payroll-table .payroll-net-cell small{color:#604818}
+.payroll-ineligible{display:inline-block!important;width:max-content;max-width:100%;padding:3px 6px;border-radius:5px;background:#fff1f0;color:#8a1c13!important;line-height:1.4}
 @media(max-width:620px){.advances-section-head{display:grid}.advances-total-line>div{width:100%;margin-left:0}.advances-pagination{flex-wrap:wrap}.advances-pagination span{width:100%}}

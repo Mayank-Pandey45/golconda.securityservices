@@ -23,11 +23,29 @@ import { createRoot } from "react-dom/client";
 import {
   Shield, ShieldCheck, Menu, X, ArrowUpRight, ArrowRight, LockKeyhole,
   Globe, Code2, GraduationCap, UserRound, Bell, CalendarDays, Users,
-  FileText, Mail, Phone, MapPin, ChevronRight, CheckCircle2, LogOut, Plus, Trash2, Pencil, RefreshCw, AlertCircle, Building2
+  FileText, Mail, Phone, MapPin, ChevronRight, CheckCircle2, LogOut, Plus, Trash2, Pencil, RefreshCw, AlertCircle, Building2, Moon, Sun
 } from "lucide-react";
 import "./styles.css";
+import "./admin/adminTheme.css";
 
 const serviceIconMap = { "shield-check": ShieldCheck, shield: Shield, globe: Globe, code: Code2, "graduation-cap": GraduationCap };
+const adminNavGroups = [
+  { id: "overview", label: "Overview", items: [["overview", "Dashboard", ShieldCheck]] },
+  { id: "workforce", label: "Workforce", items: [["guards", "Security Guards", Users, "guards"], ["supervisors", "Supervisors", UserRound, "supervisors"], ["fieldOfficers", "Field Officers", UserRound, "field_officers"]] },
+  { id: "operations", label: "Operations", items: [["sites", "Sites", Building2, "sites"]] },
+  { id: "finance", label: "Finance", items: [["advances", "Salary & Advances", FileText, "advances"]] },
+  { id: "content", label: "Content", items: [["services", "Services", Globe, "services"], ["events", "Events", CalendarDays, "events"], ["notifications", "Notifications", Bell, "notifications"], ["profileDocs", "Company Profile & Media", FileText, "profile_docs"], ["mediaCleanup", "Private Media Cleanup", Trash2]] },
+  { id: "requests", label: "Requests", items: [["contactSubmissions", "Contact Enquiries", Mail, "contact_submissions"], ["jobApplications", "Job Applications", UserRound, "job_applications"], ["complaints", "Complaints", AlertCircle, "complaints"]] },
+  { id: "history", label: "History", items: [["retainedHistory", "Retained History", FileText]] },
+];
+
+function readAdminTheme() {
+  try {
+    const saved = window.localStorage.getItem("gss-admin-theme-v1");
+    if (saved === "dark" || saved === "light") return saved;
+  } catch { /* Storage can be unavailable in restricted browser contexts. */ }
+  return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
 
 async function fetchAllSupabaseRows(table, columns = "*") {
   const allRows = [];
@@ -62,6 +80,12 @@ function App() {
   const profileGuardId = routeParams.get("guard");
   const profileSiteId = routeParams.get("site");
   const requestedTab = routeParams.get("tab");
+  const [adminTheme, setAdminTheme] = useState(readAdminTheme);
+  const [expandedAdminNav, setExpandedAdminNav] = useState(() => {
+    const routeTab = requestedTab || (profileGuardId ? "guards" : profileSiteId ? "sites" : "overview");
+    const activeGroup = adminNavGroups.find(group => group.items.some(([tab]) => tab === routeTab));
+    return activeGroup ? [activeGroup.id] : ["overview"];
+  });
   const [menuOpen, setMenuOpen] = useState(false);
   const [formNotices, setFormNotices] = useState({});
   const [submitting, setSubmitting] = useState({});
@@ -107,6 +131,11 @@ function App() {
   const [adminLoading, setAdminLoading] = useState(false);
   const [adminMessage, setAdminMessage] = useState("");
   const [editingId, setEditingId] = useState(null);
+
+  useEffect(() => {
+    document.documentElement.dataset.adminTheme = adminTheme;
+    try { window.localStorage.setItem("gss-admin-theme-v1", adminTheme); } catch { /* Keep the current theme for this session if storage is blocked. */ }
+  }, [adminTheme]);
 
   // Forms for different admin tabs
   const [itemForm, setItemForm] = useState({
@@ -325,6 +354,12 @@ function App() {
     });
   }
 
+  function selectAdminTab(tab, groupId) {
+    setAdminTab(tab);
+    setExpandedAdminNav(current => current.includes(groupId) ? current : [...current, groupId]);
+    if (tab !== "overview") resetItemForm();
+  }
+
   function startEditing(item, tabKey) {
     setEditingId(item.id);
     setItemForm({
@@ -520,16 +555,16 @@ function App() {
     const totalSitesCount = dashboardMetrics?.sites ?? "—";
     const metric = (key) => dashboardMetrics?.[key] ?? "—";
 
-    return <div className="gss-admin-shell">
+    return <div className="gss-admin-shell" data-theme={adminTheme}>
       <style>{`
-        .gss-admin-shell{min-height:100vh;background:#f4f6fa;color:#172033;font-family:Inter,system-ui,sans-serif;--button-primary-bg:#caa65b;--button-primary-hover:#b5893c;--button-primary-active:#a97d31;--button-primary-fg:#151b27;--button-secondary-bg:#fff;--button-secondary-hover:#edf2f7;--button-secondary-active:#e2e8f0;--button-secondary-fg:#263246;--button-border:#d6dce5;--button-disabled-bg:#e5e7eb;--button-disabled-fg:#475467;--button-danger-bg:#fff1f0;--button-danger-fg:#8a1c13;--button-focus:#0b5278}
-        .gss-admin-header{height:auto;min-height:78px;padding:16px clamp(18px,5vw,64px);background:#101827;color:#fff;display:flex;align-items:center;justify-content:space-between;gap:18px;border-bottom:1px solid #283449}
+        .gss-admin-shell{min-height:100vh;background:radial-gradient(ellipse at 12% 0%,#fff9e9 0,transparent 35%),linear-gradient(135deg,#f3f6fa,#e9eef5 56%,#f6f5f0);color:#172033;font-family:Inter,system-ui,sans-serif;--button-primary-bg:#caa65b;--button-primary-hover:#b5893c;--button-primary-active:#a97d31;--button-primary-fg:#151b27;--button-secondary-bg:#ffffff;--button-secondary-hover:#edf2f7;--button-secondary-active:#e2e8f0;--button-secondary-fg:#263246;--button-border:#d6dce5;--button-disabled-bg:#e5e7eb;--button-disabled-fg:#475467;--button-danger-bg:#fff1f0;--button-danger-fg:#8a1c13;--button-focus:#0b5278}
+        .gss-admin-header{height:auto;min-height:78px;padding:16px clamp(18px,5vw,64px);background:rgba(16,24,39,.94);backdrop-filter:blur(14px);color:#fff;display:flex;align-items:center;justify-content:space-between;gap:18px;border-bottom:1px solid #283449;box-shadow:0 8px 28px #11182726}
         .gss-admin-brand,.gss-admin-account,.gss-admin-account button,.gss-admin-secondary,.gss-admin-primary,.gss-admin-item-actions button{display:flex;align-items:center;gap:10px}
         .gss-admin-mark{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;background:#101827;color:#d7b56d;border:2px solid #d7b56d;overflow:hidden}
         .gss-admin-mark img{width:100%;height:100%;object-fit:cover}
         .gss-admin-brand strong,.gss-admin-brand small{display:block;letter-spacing:.12em}.gss-admin-brand strong{font-size:15px}.gss-admin-brand small{font-size:9px;color:#c6cedb;margin-top:4px}
         .gss-admin-account{font-size:13px;color:#dce3ee}.gss-admin-account button{border:1px solid #465267;background:transparent;color:#fff;border-radius:8px;padding:10px 13px;cursor:pointer}
-        .gss-admin-main{max-width:1240px;margin:auto;padding:38px 22px 60px}
+        .gss-admin-main{max-width:1580px;margin:auto;padding:32px clamp(14px,2.5vw,34px) 60px}
         .gss-admin-welcome{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:26px}
         .gss-admin-welcome h1{font-size:clamp(28px,4vw,38px);margin:8px 0;color:#172033}
         .gss-admin-welcome h1 em{font-style:normal;color:#9a742d}
@@ -558,7 +593,7 @@ function App() {
         .gss-admin-stats small{font-size:10px;color:#7b8494;text-transform:uppercase}
         .gss-admin-stats strong{font-size:15px;margin:2px 0}
         .gss-admin-stats b{font-size:11px;color:#9a742d}
-        .gss-admin-panel{background:#fff;border:1px solid #e1e6ee;border-radius:14px;padding:clamp(18px,3vw,30px);box-shadow:0 8px 28px #18223808}
+        .gss-admin-panel{background:rgba(255,255,255,.82);backdrop-filter:blur(12px);border:1px solid #e1e6ee;border-radius:16px;padding:clamp(18px,3vw,30px);box-shadow:0 12px 36px #1822380c}
         .gss-admin-panel-heading{display:flex;justify-content:space-between;align-items:center;gap:18px;margin-bottom:24px}
         .gss-admin-panel-heading h2{margin:7px 0;font-size:24px}
         .gss-admin-form{border:1px solid #e5e9ef;background:#fafbfd;border-radius:11px;padding:20px;margin-bottom:24px;display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px}
@@ -602,7 +637,7 @@ function App() {
           <span className="gss-admin-mark"><img src="/gss-logo.png" alt="Logo" /></span>
           <div><strong>GOLCONDA</strong><small>SECURITY SERVICES · ADMIN PORTAL</small></div>
         </div>
-        <div className="gss-admin-account"><span>{adminEmail}</span><button type="button" onClick={handleAdminLogout}><LogOut size={16}/> Logout</button></div>
+        <div className="gss-admin-account"><span>{adminEmail}</span><button className="gss-admin-theme-toggle" type="button" onClick={() => setAdminTheme(current => current === "dark" ? "light" : "dark")} aria-label={`Switch to ${adminTheme === "dark" ? "light" : "dark"} mode`} title={`Switch to ${adminTheme === "dark" ? "light" : "dark"} mode`} aria-pressed={adminTheme === "dark"}>{adminTheme === "dark" ? <Sun size={16}/> : <Moon size={16}/>}<span>{adminTheme === "dark" ? "Light mode" : "Dark mode"}</span></button><button type="button" onClick={handleAdminLogout}><LogOut size={16}/> Logout</button></div>
       </header>
 
       <main className="gss-admin-main">
@@ -617,25 +652,18 @@ function App() {
           </button>
         </div>
 
-        {/* Stats Navigation bar */}
-        <div className="gss-admin-stats">
-          <button className={adminTab === "overview" ? "active" : ""} onClick={() => setAdminTab("overview")}><ShieldCheck/><span><small>Overview</small><strong>Dashboard</strong><b>Live database counts</b></span></button>
-          <button className={adminTab === "sites" ? "active" : ""} onClick={() => { setAdminTab("sites"); resetItemForm(); }}><Building2/><span><small>Management</small><strong>Sites</strong><b>{totalSitesCount} Records</b></span></button>
-          <button className={adminTab === "guards" ? "active" : ""} onClick={() => { setAdminTab("guards"); resetItemForm(); }}><Users/><span><small>Management</small><strong>Guards</strong><b>{totalGuardsCount} Records</b></span></button>
-          <button className={adminTab === "supervisors" ? "active" : ""} onClick={() => { setAdminTab("supervisors"); resetItemForm(); }}><UserRound/><span><small>Management</small><strong>Supervisors</strong><b>{metric("supervisors")} Records</b></span></button>
-          <button className={adminTab === "fieldOfficers" ? "active" : ""} onClick={() => { setAdminTab("fieldOfficers"); resetItemForm(); }}><UserRound/><span><small>Management</small><strong>Field Officers</strong><b>{metric("field_officers")} Records</b></span></button>
-          <button className={adminTab === "advances" ? "active" : ""} onClick={() => { setAdminTab("advances"); resetItemForm(); }}><FileText/><span><small>Payroll</small><strong>Advances</strong><b>{metric("advances")} Records</b></span></button>
-          <button className={adminTab === "retainedHistory" ? "active" : ""} onClick={() => { setAdminTab("retainedHistory"); resetItemForm(); }}><FileText/><span><small>Retention</small><strong>History</strong></span></button>
-          <button className={adminTab === "mediaCleanup" ? "active" : ""} onClick={() => { setAdminTab("mediaCleanup"); resetItemForm(); }}><FileText/><span><small>Company Vault</small><strong>File Cleanup</strong></span></button>
-          <button className={adminTab === "profileDocs" ? "active" : ""} onClick={() => { setAdminTab("profileDocs"); resetItemForm(); }}><FileText/><span><small>Company Vault</small><strong>Profile Docs</strong><b>{metric("profile_docs")} Files</b></span></button>
-          <button className={adminTab === "complaints" ? "active" : ""} onClick={() => { setAdminTab("complaints"); resetItemForm(); }}><AlertCircle/><span><small>Client & Staff</small><strong>Complaints</strong><b>{metric("complaints")} Logged</b></span></button>
-          <button className={adminTab === "events" ? "active" : ""} onClick={() => { setAdminTab("events"); resetItemForm(); }}><CalendarDays/><span><small>Schedule</small><strong>Events</strong><b>{metric("events")} Items</b></span></button>
-          <button className={adminTab === "notifications" ? "active" : ""} onClick={() => { setAdminTab("notifications"); resetItemForm(); }}><Bell/><span><small>Broadcasts</small><strong>Notifications</strong><b>{metric("notifications")} Records</b></span></button>
-          <button className={adminTab === "services" ? "active" : ""} onClick={() => { setAdminTab("services"); resetItemForm(); }}><Globe/><span><small>Offerings</small><strong>Services</strong><b>{metric("services")} Listed</b></span></button>
-          <button className={adminTab === "contactSubmissions" ? "active" : ""} onClick={() => { setAdminTab("contactSubmissions"); resetItemForm(); }}><Mail/><span><small>Website</small><strong>Enquiries</strong><b>{metric("contact_submissions")} Records</b></span></button>
-          <button className={adminTab === "jobApplications" ? "active" : ""} onClick={() => { setAdminTab("jobApplications"); resetItemForm(); }}><UserRound/><span><small>Recruitment</small><strong>Applications</strong><b>{metric("job_applications")} Records</b></span></button>
-        </div>
-
+        <div className="gss-admin-workspace">
+        <nav className="gss-admin-nav" aria-label="Admin dashboard">
+          {adminNavGroups.map(group => <details key={group.id} className="gss-admin-nav-group" open={expandedAdminNav.includes(group.id)} onToggle={event => {
+            const isOpen = event.currentTarget.open;
+            setExpandedAdminNav(current => isOpen ? (current.includes(group.id) ? current : [...current, group.id]) : current.filter(id => id !== group.id));
+          }}>
+            <summary>{group.label}<ChevronRight size={15}/></summary>
+            <div className="gss-admin-nav-items">{group.items.map(([tab, label, Icon, metricKey]) => <button key={tab} type="button" className={adminTab === tab ? "active" : ""} onClick={() => selectAdminTab(tab, group.id)} aria-current={adminTab === tab ? "page" : undefined}>
+              <Icon size={17}/><span>{label}</span>{metricKey && <small>{metric(metricKey)}</small>}
+            </button>)}</div>
+          </details>)}
+        </nav>
         <section className={`gss-admin-panel${profileGuardId || profileSiteId ? " gss-admin-profile-panel" : ""}`}>
           {profileGuardId ? <GuardProfile guardId={profileGuardId}/> : profileSiteId ? <SiteProfile siteId={profileSiteId}/> : <>
           <div className="gss-admin-panel-heading">
@@ -661,17 +689,17 @@ function App() {
                 <div className="gss-overview-card">
                   <h3>🏢 Sites & Hierarchy</h3>
                   <p>Assign and monitor sites under designated Supervisors and Field Officers. Keep track of guard deployments and phone/email directories.</p>
-                  <button className="gss-admin-secondary" onClick={() => setAdminTab("sites")}><Building2 size={15}/> Manage Sites</button>
+                  <button className="gss-admin-secondary" onClick={() => selectAdminTab("sites", "operations")}><Building2 size={15}/> Manage Sites</button>
                 </div>
                 <div className="gss-overview-card">
                   <h3>📁 Company Profile Vault</h3>
                   <p>Upload profile documents, quotations, and certificates by dragging files or selecting them directly.</p>
-                  <button className="gss-admin-secondary" onClick={() => setAdminTab("profileDocs")}><FileText size={15}/> Open Vault</button>
+                  <button className="gss-admin-secondary" onClick={() => selectAdminTab("profileDocs", "content")}><FileText size={15}/> Open Vault</button>
                 </div>
                 <div className="gss-overview-card">
                   <h3>📣 Published Updates</h3>
                   <p>Manage announcements and safety updates shown on the public website.</p>
-                  <button className="gss-admin-secondary" onClick={() => setAdminTab("notifications")}><Bell size={15}/> Notifications</button>
+                  <button className="gss-admin-secondary" onClick={() => selectAdminTab("notifications", "content")}><Bell size={15}/> Notifications</button>
                 </div>
               </div>
             </div>
@@ -839,6 +867,7 @@ function App() {
           </>}
           </>}
         </section>
+        </div>
 
         <p className="gss-admin-security-note">
           <LockKeyhole size={15}/> Submissions are stored in Supabase for authorized admin review.

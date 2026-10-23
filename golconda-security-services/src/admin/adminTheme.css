@@ -1,0 +1,97 @@
+.gss-admin-workspace{display:grid;grid-template-columns:minmax(210px,250px) minmax(0,1fr);align-items:start;gap:18px;min-width:0}
+.gss-admin-nav{position:sticky;top:14px;display:grid;gap:7px;max-height:calc(100dvh - 28px);overflow:auto;padding:10px;border:1px solid rgba(208,218,230,.85);border-radius:16px;background:rgba(255,255,255,.7);backdrop-filter:blur(14px);box-shadow:0 12px 32px rgba(24,34,56,.08)}
+.gss-admin-nav-group{min-width:0;border:1px solid transparent;border-radius:11px}
+.gss-admin-nav-group[open]{border-color:#e1e7ef;background:rgba(255,255,255,.65)}
+.gss-admin-nav-group>summary{min-height:40px;padding:9px 10px;display:flex;align-items:center;justify-content:space-between;gap:10px;list-style:none;color:#48576b;font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;cursor:pointer;border-radius:9px}
+.gss-admin-nav-group>summary::-webkit-details-marker{display:none}
+.gss-admin-nav-group>summary svg{transition:transform .16s ease}
+.gss-admin-nav-group[open]>summary svg{transform:rotate(90deg)}
+.gss-admin-nav-group>summary:focus-visible{outline:2px solid #126b9b;outline-offset:2px}
+.gss-admin-nav-items{display:grid;gap:3px;padding:0 5px 6px}
+.gss-admin-nav-items button{min-width:0;min-height:42px;display:flex;align-items:center;gap:9px;padding:8px 9px;border:1px solid transparent;border-radius:8px;background:transparent;color:#324257;text-align:left;font:inherit;font-size:12px;font-weight:650;cursor:pointer;transition:background-color .16s,border-color .16s,color .16s,transform .16s}
+.gss-admin-nav-items button>svg{flex:0 0 auto;color:#8f702f}
+.gss-admin-nav-items button span{min-width:0;flex:1;overflow-wrap:anywhere}
+.gss-admin-nav-items button small{flex:0 0 auto;color:#68788b;font-size:10px;font-variant-numeric:tabular-nums}
+.gss-admin-nav-items button:hover{background:#f0f4f8;border-color:#dde5ed;color:#18263a;transform:translateX(1px)}
+.gss-admin-nav-items button.active{background:#fff8e8;border-color:#e2c77e;color:#382b12;box-shadow:inset 3px 0 0 #b78d39}
+.gss-admin-nav-items button.active>svg{color:#8b6725}
+.gss-admin-nav-items button:focus-visible{outline:2px solid #126b9b;outline-offset:2px}
+.gss-admin-shell[data-theme="light"] .gss-admin-panel,.gss-admin-shell[data-theme="light"] .gss-overview-card{box-shadow:0 14px 36px rgba(18,34,54,.07)}
+.gss-admin-shell[data-theme="light"] .gss-admin-stats>button,.gss-admin-shell[data-theme="light"] .gss-admin-overview-tile{backdrop-filter:blur(10px)}
+.gss-admin-theme-toggle{min-height:40px}
+
+.gss-admin-shell[data-theme="dark"]{color-scheme:dark;--button-primary-bg:#dfbd71!important;--button-primary-hover:#edce88!important;--button-primary-active:#caa65b!important;--button-primary-fg:#17202c!important;--button-secondary-bg:#1a2a3e!important;--button-secondary-hover:#273b52!important;--button-secondary-active:#314961!important;--button-secondary-fg:#edf3f9!important;--button-border:#465b73!important;--button-disabled-bg:#253447!important;--button-disabled-fg:#b4c0ce!important;--button-danger-bg:#4a2929!important;--button-danger-fg:#ffcfca!important;--button-focus:#80d1ff!important;background:radial-gradient(ellipse at 14% 0%,rgba(178,141,59,.12),transparent 35%),linear-gradient(135deg,#0c1420,#111d2b 56%,#101924)!important;color:#e8eef6!important}
+.gss-admin-shell[data-theme="dark"] .gss-admin-main{color:#e8eef6}
+.gss-admin-shell[data-theme="dark"] .gss-admin-header{background:rgba(8,14,23,.94);border-color:#2b394b}
+.gss-admin-shell[data-theme="dark"] .gss-admin-nav{background:rgba(20,31,46,.86);border-color:#34455a;box-shadow:0 16px 38px rgba(0,0,0,.24)}
+.gss-admin-shell[data-theme="dark"] .gss-admin-nav-group[open]{background:rgba(30,44,62,.68);border-color:#3a4d63}
+.gss-admin-shell[data-theme="dark"] .gss-admin-nav-group>summary{color:#c7d3e0}
+.gss-admin-shell[data-theme="dark"] .gss-admin-nav-items button{color:#d6e0eb}
+.gss-admin-shell[data-theme="dark"] .gss-admin-nav-items button>svg{color:#d7b56d}
+.gss-admin-shell[data-theme="dark"] .gss-admin-nav-items button small{color:#a9b8c9}
+.gss-admin-shell[data-theme="dark"] .gss-admin-nav-items button:hover{background:#24374c;border-color:#415a73;color:#fff}
+.gss-admin-shell[data-theme="dark"] .gss-admin-nav-items button.active{background:#3b3425;border-color:#a58a51;color:#fff5d8;box-shadow:inset 3px 0 0 #dfbd71}
+.gss-admin-shell[data-theme="dark"] .gss-admin-nav-items button.active>svg{color:#f1ce79}
+.gss-admin-shell[data-theme="dark"] .gss-admin-welcome h1,.gss-admin-shell[data-theme="dark"] .gss-admin-panel-heading h2{color:#edf3f9!important}
+.gss-admin-shell[data-theme="dark"] .gss-admin-welcome h1 em{color:#e2c27b}
+.gss-admin-shell[data-theme="dark"] .gss-admin-welcome p,.gss-admin-shell[data-theme="dark"] .gss-admin-panel-heading p,.gss-admin-shell[data-theme="dark"] .gss-admin-security-note{color:#afbdcc!important}
+.gss-admin-shell[data-theme="dark"] .gss-admin-panel,.gss-admin-shell[data-theme="dark"] .gss-admin-stats>button,.gss-admin-shell[data-theme="dark"] .gss-overview-card,.gss-admin-shell[data-theme="dark"] .gss-admin-item,.gss-admin-shell[data-theme="dark"] .advances-report-panel,.gss-admin-shell[data-theme="dark"] .guard-import-panel,.gss-admin-shell[data-theme="dark"] .guard-export-panel,.gss-admin-shell[data-theme="dark"] .site-import-card,.gss-admin-shell[data-theme="dark"] .site-import-preview,.gss-admin-shell[data-theme="dark"] .gss-admin-form,.gss-admin-shell[data-theme="dark"] .gss-admin-empty,.gss-admin-shell[data-theme="dark"] .gss-admin-profile-panel{background:rgba(23,36,53,.88)!important;border-color:#35485e!important;color:#e5edf5!important;box-shadow:0 14px 38px rgba(0,0,0,.2)}
+.gss-admin-shell[data-theme="dark"] .gss-admin-stats>button.active{background:#3b3425!important;border-color:#b79b5c!important}
+.gss-admin-shell[data-theme="dark"] .gss-admin-stats>div{background:#1a2a3d!important;border-color:#3b4f66!important}
+.gss-admin-shell[data-theme="dark"] .gss-admin-stats>div small{color:#adbac9!important}
+.gss-admin-shell[data-theme="dark"] .gss-admin-stats>div strong{color:#e8eef6!important}
+.gss-admin-shell[data-theme="dark"] .gss-admin-stats>div span{color:#a9ecd0!important}
+.gss-admin-shell[data-theme="dark"] .gss-admin-stats>button>svg,.gss-admin-shell[data-theme="dark"] .gss-admin-welcome .eyebrow{color:#e2c27b!important}
+.gss-admin-shell[data-theme="dark"] .gss-admin-stats small{color:#adbac9!important}
+.gss-admin-shell[data-theme="dark"] .gss-admin-stats strong,.gss-admin-shell[data-theme="dark"] .gss-overview-card h3{color:#e8eef6!important}
+.gss-admin-shell[data-theme="dark"] .gss-admin-stats b,.gss-admin-shell[data-theme="dark"] .gss-overview-card p{color:#b9c7d5!important}
+.gss-admin-shell[data-theme="dark"] .gss-admin-form label,.gss-admin-shell[data-theme="dark"] .gss-admin-item-copy strong,.gss-admin-shell[data-theme="dark"] .gss-admin-item-copy p,.gss-admin-shell[data-theme="dark"] .gss-admin-item-copy .site-details,.gss-admin-shell[data-theme="dark"] .gss-admin-list-heading h3,.gss-admin-shell[data-theme="dark"] .gss-admin-list-heading span{color:#dce5ef!important}
+.gss-admin-shell[data-theme="dark"] .gss-admin-item-copy small{color:#aab9c9!important}
+.gss-admin-shell[data-theme="dark"] .gss-admin-item-copy .site-details{background:#1b2a3d!important;border-color:#3a4d63!important}
+.gss-admin-shell[data-theme="dark"] .gss-admin-shell input,.gss-admin-shell[data-theme="dark"] input:not([type="checkbox"]):not([type="radio"]),.gss-admin-shell[data-theme="dark"] textarea,.gss-admin-shell[data-theme="dark"] select,.gss-admin-shell[data-theme="dark"] .gss-admin-search{background:#111e2e!important;color:#e8eef6!important;border-color:#50647b!important}
+.gss-admin-shell[data-theme="dark"] input::placeholder,.gss-admin-shell[data-theme="dark"] textarea::placeholder{color:#aebdcb!important;opacity:1}
+.gss-admin-shell[data-theme="dark"] select option{color:#e8eef6!important;background:#111e2e!important}
+.gss-admin-shell[data-theme="dark"] input:disabled,.gss-admin-shell[data-theme="dark"] textarea:disabled,.gss-admin-shell[data-theme="dark"] select:disabled{background:#263448!important;color:#b8c4d1!important;border-color:#465970!important}
+.gss-admin-shell[data-theme="dark"] .advances-note,.gss-admin-shell[data-theme="dark"] .advances-inline-form,.gss-admin-shell[data-theme="dark"] .advances-record-form,.gss-admin-shell[data-theme="dark"] .advances-adjustment-form{background:#1d2c40!important;border-color:#455b72!important;color:#d5dfeb!important}
+.gss-admin-shell[data-theme="dark"] .advances-note,.gss-admin-shell[data-theme="dark"] .advances-section-head p,.gss-admin-shell[data-theme="dark"] .advances-section-head>label,.gss-admin-shell[data-theme="dark"] .advances-filters label,.gss-admin-shell[data-theme="dark"] .advances-inline-form>p,.gss-admin-shell[data-theme="dark"] .advances-adjustment-form>p{color:#bdc9d6!important}
+.gss-admin-shell[data-theme="dark"] .advances-total-line{border-color:#3a4d63;color:#bac7d5}
+.gss-admin-shell[data-theme="dark"] .advances-total-line>strong{color:#edf3f9}
+.gss-admin-shell[data-theme="dark"] .advances-table-wrap,.gss-admin-shell[data-theme="dark"] .guard-profile-table-wrap,.gss-admin-shell[data-theme="dark"] .site-profile-table-wrap{background:#152337!important;border-color:#3b4f66!important}
+.gss-admin-shell[data-theme="dark"] .advances-table,.gss-admin-shell[data-theme="dark"] .guard-profile-table,.gss-admin-shell[data-theme="dark"] .site-profile-table{color:#dce5ef!important;background:#152337!important}
+.gss-admin-shell[data-theme="dark"] .advances-table th,.gss-admin-shell[data-theme="dark"] .guard-profile-table th,.gss-admin-shell[data-theme="dark"] .site-profile-table th{background:#22344a!important;color:#e0e9f2!important;border-color:#3b4e64!important}
+.gss-admin-shell[data-theme="dark"] .advances-table td,.gss-admin-shell[data-theme="dark"] .guard-profile-table td,.gss-admin-shell[data-theme="dark"] .site-profile-table td{color:#d5dfeb!important;border-color:#33475d!important}
+.gss-admin-shell[data-theme="dark"] .advances-table td small,.gss-admin-shell[data-theme="dark"] .guard-profile-table td small{color:#afbdcb!important}
+.gss-admin-shell[data-theme="dark"] .advances-payroll-table .payroll-net-cell{background:#3b3425!important;color:#fff0c8!important}
+.gss-admin-shell[data-theme="dark"] .advances-payroll-table .payroll-net-cell b,.gss-admin-shell[data-theme="dark"] .advances-payroll-table .payroll-net-cell small{color:#fff0c8!important}
+.gss-admin-shell[data-theme="dark"] .payroll-ineligible{background:#4a2929!important;color:#ffcfca!important}
+.gss-admin-shell[data-theme="dark"] .gss-admin-message{background:#3b3425!important;border-color:#715d35!important;color:#ffedc2!important}
+.gss-admin-shell[data-theme="dark"] .advances-recovery-unavailable,.gss-admin-shell[data-theme="dark"] .record-preserve-note,.gss-admin-shell[data-theme="dark"] .guard-preview-summary,.gss-admin-shell[data-theme="dark"] .guard-import-result{background:#203348!important;border-color:#45617a!important;color:#dbe7f1!important}
+.gss-admin-shell[data-theme="dark"] .guard-profile-page,.gss-admin-shell[data-theme="dark"] .site-profile-page{color:#e5edf5!important}
+.gss-admin-shell[data-theme="dark"] .guard-profile-header,.gss-admin-shell[data-theme="dark"] .site-profile-header,.gss-admin-shell[data-theme="dark"] .guard-profile-section,.gss-admin-shell[data-theme="dark"] .site-profile-section,.gss-admin-shell[data-theme="dark"] .guard-profile-state,.gss-admin-shell[data-theme="dark"] .site-profile-state{background:rgba(23,36,53,.9)!important;border-color:#35485e!important;color:#e5edf5!important}
+.gss-admin-shell[data-theme="dark"] .guard-profile-title h2,.gss-admin-shell[data-theme="dark"] .guard-profile-contact strong,.gss-admin-shell[data-theme="dark"] .guard-profile-section h4,.gss-admin-shell[data-theme="dark"] .guard-profile-section-heading h3,.gss-admin-shell[data-theme="dark"] .site-profile-header h2,.gss-admin-shell[data-theme="dark"] .site-profile-section h3,.gss-admin-shell[data-theme="dark"] .site-profile-counts strong{color:#e8eef6!important}
+.gss-admin-shell[data-theme="dark"] .guard-profile-title p,.gss-admin-shell[data-theme="dark"] .guard-profile-section-heading p,.gss-admin-shell[data-theme="dark"] .guard-profile-contact small,.gss-admin-shell[data-theme="dark"] .guard-profile-metrics small,.gss-admin-shell[data-theme="dark"] .guard-profile-metrics span,.gss-admin-shell[data-theme="dark"] .guard-profile-filters label,.gss-admin-shell[data-theme="dark"] .site-profile-header p,.gss-admin-shell[data-theme="dark"] .site-profile-facts small{color:#b7c5d3!important}
+.gss-admin-shell[data-theme="dark"] .guard-profile-contact>div,.gss-admin-shell[data-theme="dark"] .guard-profile-metrics article,.gss-admin-shell[data-theme="dark"] .guard-profile-assignment-grid article,.gss-admin-shell[data-theme="dark"] .guard-profile-salary-breakdown article,.gss-admin-shell[data-theme="dark"] .site-profile-facts>div,.gss-admin-shell[data-theme="dark"] .site-profile-counts article{background:#1a2a3d!important;border-color:#3a4d63!important}
+.gss-admin-shell[data-theme="dark"] .guard-profile-metrics strong,.gss-admin-shell[data-theme="dark"] .guard-profile-salary-breakdown strong,.gss-admin-shell[data-theme="dark"] .guard-profile-ledger-summary strong{color:#e8eef6!important}
+.gss-admin-shell[data-theme="dark"] .guard-profile-salary-net{background:#343125!important;border-color:#76643c!important}
+.gss-admin-shell[data-theme="dark"] .guard-profile-salary-net strong{color:#ffe8ad!important}
+.gss-admin-shell[data-theme="dark"] .guard-profile-table a,.gss-admin-shell[data-theme="dark"] .site-profile-table a,.gss-admin-shell[data-theme="dark"] .guard-profile-assignment-grid a,.gss-admin-shell[data-theme="dark"] .site-profile-link,.gss-admin-shell[data-theme="dark"] .guard-profile-link{color:#8bd4ff!important}
+.gss-admin-shell[data-theme="dark"] .guard-profile-ledger-summary,.gss-admin-shell[data-theme="dark"] .guard-profile-unavailable,.gss-admin-shell[data-theme="dark"] .site-profile-note{background:#203348!important;border-color:#405970!important;color:#d4e1ec!important}
+.gss-admin-shell[data-theme="dark"] .guard-profile-error,.gss-admin-shell[data-theme="dark"] .site-import-errors,.gss-admin-shell[data-theme="dark"] .lifecycle-form .lifecycle-error{background:#4a2929!important;border-color:#8b4e4e!important;color:#ffd7d2!important}
+.gss-admin-shell[data-theme="dark"] .guard-count-grid>div,.gss-admin-shell[data-theme="dark"] .guard-result-rows,.gss-admin-shell[data-theme="dark"] .site-import-preview-list>div,.gss-admin-shell[data-theme="dark"] .site-import-preview,.gss-admin-shell[data-theme="dark"] .closed-sites,.gss-admin-shell[data-theme="dark"] .gss-admin-item-actions button{background:#1a2a3d!important;border-color:#3b4f66!important;color:#e0e8f1!important}
+.gss-admin-shell[data-theme="dark"] .guard-module-heading h3,.gss-admin-shell[data-theme="dark"] .guard-module-heading p,.gss-admin-shell[data-theme="dark"] .guard-import-help,.gss-admin-shell[data-theme="dark"] .guard-count-grid strong,.gss-admin-shell[data-theme="dark"] .guard-count-grid small,.gss-admin-shell[data-theme="dark"] .guard-salary-divider strong,.gss-admin-shell[data-theme="dark"] .guard-salary-divider span,.gss-admin-shell[data-theme="dark"] .people-section-heading,.gss-admin-shell[data-theme="dark"] .people-management .people-private-note,.gss-admin-shell[data-theme="dark"] .people-history-note,.gss-admin-shell[data-theme="dark"] .site-editor-note,.gss-admin-shell[data-theme="dark"] .site-import-help{color:#bdc9d6!important}
+.gss-admin-shell[data-theme="dark"] .guard-site-checks,.gss-admin-shell[data-theme="dark"] .site-assignment-group,.gss-admin-shell[data-theme="dark"] .people-assignment-group,.gss-admin-shell[data-theme="dark"] .site-assignment-options label,.gss-admin-shell[data-theme="dark"] .people-check-list label{border-color:#43566c!important;color:#e0e8f1!important}
+.gss-admin-shell[data-theme="dark"] .guard-site-checks label span,.gss-admin-shell[data-theme="dark"] .guard-site-checks small,.gss-admin-shell[data-theme="dark"] .site-assignment-options b,.gss-admin-shell[data-theme="dark"] .site-assignment-options small,.gss-admin-shell[data-theme="dark"] .people-assignment-group legend,.gss-admin-shell[data-theme="dark"] .people-assignment-group legend span,.gss-admin-shell[data-theme="dark"] .people-assignment-group>p,.gss-admin-shell[data-theme="dark"] .people-check-list b,.gss-admin-shell[data-theme="dark"] .people-check-list small{color:#c6d2df!important}
+.gss-admin-shell[data-theme="dark"] .drag-drop-box{background:#1a2a3d!important;border-color:#52677f!important;color:#dce5ef!important}
+.gss-admin-shell[data-theme="dark"] .site-title-line,.gss-admin-shell[data-theme="dark"] .site-profile-facts strong{color:#e0e8f1!important}
+.gss-admin-shell[data-theme="dark"] .site-status.inactive,.gss-admin-shell[data-theme="dark"] .people-status.inactive,.gss-admin-shell[data-theme="dark"] .people-status.relieved{background:#34465a!important;color:#d2dde8!important}
+.gss-admin-shell[data-theme="dark"] .site-status:not(.inactive),.gss-admin-shell[data-theme="dark"] .people-status:not(.inactive):not(.relieved):not(.on_leave){background:#173c32!important;color:#a9ecd0!important}
+.gss-admin-shell[data-theme="dark"] .people-status.on_leave{background:#4a3b1d!important;color:#ffdf8e!important}
+.gss-admin-shell[data-theme="dark"] .site-profile-counts small{color:#bac8d7!important}
+.gss-admin-shell[data-theme="dark"] .record-dialog{background:#132438!important;color:#e8eef6!important;border-color:#48617a!important}
+.gss-admin-shell[data-theme="dark"] .record-dialog p,.gss-admin-shell[data-theme="dark"] .record-dialog label,.gss-admin-shell[data-theme="dark"] .record-dialog h3,.gss-admin-shell[data-theme="dark"] .lifecycle-form>p{color:#dce6ef!important}
+.gss-admin-shell[data-theme="dark"] .record-dialog input,.gss-admin-shell[data-theme="dark"] .record-dialog select,.gss-admin-shell[data-theme="dark"] .record-dialog textarea{background:#0c1928!important;color:#e8eef6!important;border-color:#526a82!important}
+.gss-admin-shell[data-theme="dark"] .record-dialog input::placeholder,.gss-admin-shell[data-theme="dark"] .record-dialog textarea::placeholder{color:#adbdcc!important}
+.gss-admin-shell[data-theme="dark"] .gss-admin-shell button:disabled,.gss-admin-shell[data-theme="dark"] .gss-admin-shell input:disabled{opacity:1}
+@media(max-width:950px){.gss-admin-workspace{grid-template-columns:minmax(0,1fr)}.gss-admin-nav{position:static;max-height:none;grid-template-columns:repeat(2,minmax(0,1fr))}.gss-admin-nav-group{min-width:0}}
+@media(max-width:600px){.gss-admin-nav{grid-template-columns:minmax(0,1fr);padding:8px}.gss-admin-nav-group>summary{min-height:44px}.gss-admin-nav-items button{min-height:44px}.gss-admin-theme-toggle span{display:inline}}
+@media(prefers-reduced-motion:reduce){.gss-admin-nav-items button,.gss-admin-nav-group>summary svg{transition:none!important}.gss-admin-nav-items button:hover{transform:none}}

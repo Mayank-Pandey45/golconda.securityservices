@@ -6,31 +6,26 @@ const coreMigration = await readFile(new URL("../supabase/migrations/20261021151
 const outboxMigration = await readFile(new URL("../supabase/migrations/20261021191500_advance_integrations_outbox.sql", import.meta.url), "utf8");
 const preflight = await readFile(new URL("../supabase/preflight_staging.sql", import.meta.url), "utf8");
 const payrollRecoveryMigration = await readFile(new URL("../supabase/migrations/20261023164027_payroll_advance_recovery_cap.sql", import.meta.url), "utf8");
+const monthlySalaryMigration = await readFile(new URL("../supabase/migrations/20261023174721_monthly_salary_without_proration.sql", import.meta.url), "utf8");
 
-function referenceMonthlyGross(monthlySalary, periodStart, joiningDate = null, employmentEndDate = null, status = "active") {
+function referenceTotalSalary(monthlySalary, periodStart, joiningDate = null, employmentEndDate = null, configured = true) {
   const [year, month] = periodStart.split("-").map(Number);
-  const periodEnd = new Date(Date.UTC(year, month, 1));
-  const firstDay = new Date(Date.UTC(year, month - 1, 1));
-  const lastDay = new Date(periodEnd.valueOf() - 86400000);
-  const joining = joiningDate ? new Date(`${joiningDate}T00:00:00.000Z`) : firstDay;
-  const ending = employmentEndDate ? new Date(`${employmentEndDate}T00:00:00.000Z`) : lastDay;
-  const paidStart = joining > firstDay ? joining : firstDay;
-  const paidEnd = ending < lastDay ? ending : lastDay;
-  if (paidStart > paidEnd) return 0;
-  const paidDays = Math.floor((paidEnd - paidStart) / 86400000) + 1;
-  const daysInMonth = Math.floor((lastDay - firstDay) / 86400000) + 1;
-  // Employment status intentionally does not change date-based accrual.
-  void status;
-  return Number((monthlySalary * paidDays / daysInMonth).toFixed(2));
+  const periodStartDate = new Date(Date.UTC(year, month - 1, 1));
+  const periodEndDate = new Date(Date.UTC(year, month, 0));
+  const joining = joiningDate ? new Date(`${joiningDate}T00:00:00.000Z`) : null;
+  const ending = employmentEndDate ? new Date(`${employmentEndDate}T00:00:00.000Z`) : null;
+  if (!configured || (joining && joining > periodEndDate) || (ending && ending < periodStartDate)) return 0;
+  return Number(monthlySalary.toFixed(2));
 }
 
-test("payroll policy uses inclusive calendar dates and handles month boundaries and leap February", () => {
-  assert.equal(referenceMonthlyGross(31000, "2026-10", "2026-10-01", "2026-10-31"), 31000);
-  assert.equal(referenceMonthlyGross(31000, "2026-10", "2026-10-16"), 16000);
-  assert.equal(referenceMonthlyGross(31000, "2026-10", null, "2026-10-16"), 16000);
-  assert.equal(referenceMonthlyGross(29000, "2024-02", "2024-02-29", "2024-02-29"), 1000);
-  assert.equal(referenceMonthlyGross(31000, "2026-10", null, "2026-09-30"), 0);
-  assert.equal(referenceMonthlyGross(31000, "2026-10", "2026-10-16", null, "inactive"), 16000);
+test("monthly salary stays whole when employment overlaps the period; outside-month employees are ineligible", () => {
+  assert.equal(referenceTotalSalary(31000, "2026-10", "2026-10-01", "2026-10-31"), 31000);
+  assert.equal(referenceTotalSalary(31000, "2026-10", "2026-10-16"), 31000);
+  assert.equal(referenceTotalSalary(31000, "2026-10", null, "2026-10-16"), 31000);
+  assert.equal(referenceTotalSalary(29000, "2024-02", "2024-02-29", "2024-02-29"), 29000);
+  assert.equal(referenceTotalSalary(31000, "2026-10", null, "2026-09-30"), 0);
+  assert.equal(referenceTotalSalary(31000, "2026-10", "2026-11-01"), 0);
+  assert.equal(referenceTotalSalary(31000, "2026-10", null, null, false), 0);
 });
 
 test("payroll assigns recoveries by salary_period and uses next-month Asia/Kolkata midnight exclusively", () => {
@@ -47,19 +42,23 @@ test("payroll assigns recoveries by salary_period and uses next-month Asia/Kolka
   assert.equal(belongsToOctober("2026-11-01", "2026-10-31T18:00:00.000Z"), false);
 });
 
-test("payroll SQL keeps explicit Asia/Kolkata boundaries, exclusive next-month cutoff, and date-based accrual", () => {
-  const start = coreMigration.indexOf("create or replace function public.get_payroll_summary(");
-  const end = coreMigration.indexOf("create or replace function public.get_filtered_advances_total(", start);
-  const payroll = coreMigration.slice(start, end);
+test("payroll RPC uses full configured salary, keeps period eligibility and Asia/Kolkata ledger cutoffs", () => {
+  const payroll = monthlySalaryMigration;
   assert.match(payroll, /p_period::timestamp at time zone 'Asia\/Kolkata'/);
   assert.match(payroll, /period_end::timestamp at time zone 'Asia\/Kolkata'/);
   assert.match(payroll, /advance\.occurred_at >= period_start_timestamp and advance\.occurred_at < period_end_timestamp/);
   assert.match(payroll, /recovery\.salary_period = p_period and recovery\.created_at < period_end_timestamp/);
-  assert.match(payroll, /generate_series\(\s*0,/);
-  assert.match(payroll, /person\.employment_end_date, period_end - 1/);
-  assert.match(payroll, /person\.joining_date, p_period/);
+  assert.match(payroll, /salary\.gross_monthly_salary as configured_monthly_salary/);
+  assert.match(payroll, /person\.configured_monthly_salary is not null\) as salary_eligible/);
+  assert.match(payroll, /Not eligible: joining date is after the selected month/);
+  assert.match(payroll, /Not eligible: employment ended before the selected month/);
+  assert.match(payroll, /'total_salary', round\(gross_for_period, 2\)/);
+  assert.doesNotMatch(payroll, /generate_series|paidDays|days_in_period|joining_date.*\//i);
   assert.doesNotMatch(payroll, /period_end::timestamptz/);
-  assert.doesNotMatch(payroll, /person\.status\s*=\s*'active'/);
+  assert.match(payroll, /security invoker/i);
+  assert.match(payroll, /revoke all on function public\.get_payroll_summary\(date, uuid\) from public, anon, authenticated/i);
+  assert.match(payroll, /grant execute on function public\.get_payroll_summary\(date, uuid\) to service_role/i);
+  assert.doesNotMatch(payroll, /drop\s+(?:table|column)|truncate|delete from public\./i);
 });
 
 test("advance recovery cap is admin-only, atomic across Sites, and leaves the append-only schema intact", () => {
