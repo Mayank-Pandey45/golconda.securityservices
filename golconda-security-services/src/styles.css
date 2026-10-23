@@ -21,7 +21,16 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 .about-visual{background:radial-gradient(ellipse at center,#132b38,#111b23 65%)}
 .profile-panel{background:linear-gradient(110deg,#111b23,#101820 70%)}
 .event-date{background:linear-gradient(150deg,#132b38,#151d21)}
-.button-gold{background:linear-gradient(110deg,#1685bd,#d9edf7);border-color:#1685bd;color:#07141c}
+.button-gold{background:linear-gradient(110deg,#0b5078,#126b9b);border-color:#0b5078;color:#fff}
+:root{--button-primary-bg:#0b5078;--button-primary-hover:#083d5b;--button-primary-active:#072f46;--button-primary-fg:#fff;--button-secondary-bg:#101b23;--button-secondary-hover:#17242a;--button-secondary-active:#20313a;--button-secondary-fg:#e9e6dc;--button-border:#52616a;--button-disabled-bg:#182226;--button-disabled-fg:#aebdc7;--button-danger-bg:#591f20;--button-danger-fg:#ffe3df;--button-focus:#54b7e5}
+.button-gold:hover:not(:disabled):not([aria-disabled=true]){background:linear-gradient(110deg,var(--button-primary-hover),var(--button-primary-bg));border-color:var(--button-primary-hover);color:var(--button-primary-fg)}
+.button-gold:active:not(:disabled):not([aria-disabled=true]){background:var(--button-primary-active);border-color:var(--button-primary-active);color:var(--button-primary-fg)}
+.button-outline:hover{background:var(--button-secondary-hover);border-color:#7c909c;color:var(--button-secondary-fg)}
+.button-outline:active{background:var(--button-secondary-active);color:var(--button-secondary-fg)}
+.button-outline:focus-visible,.button-gold:focus-visible{outline-color:var(--button-focus)}
+.login-nav:hover,.footer-login:hover,.menu-toggle:hover{background:#17242a;color:#fff;border-color:#7c909c}
+.modal-close:hover,.toast button:hover{color:#fff;background:#20313a}
+.social-links a:hover{color:#fff;border-color:#8ca0ab;background:#17242a}
 
 .update-card.severity-warning{border-color:#806327;background:linear-gradient(145deg,#1b1a16,#111719)}
 .update-card.severity-urgent{border-color:#823d3d;background:linear-gradient(145deg,#211616,#111719)}
@@ -266,13 +275,9 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
   min-height: 46px;
   margin-top: 4px;
   padding: 13px 18px;
-  color: #07141c;
-  background: linear-gradient(
-    110deg,
-    var(--complaint-blue),
-    #b8e8ff
-  );
-  border: 1px solid var(--complaint-blue);
+  color: #fff;
+  background: linear-gradient(110deg, #0b5078, #126b9b);
+  border: 1px solid #0b5078;
   border-radius: 4px;
   font-size: 12px;
   font-weight: 700;
@@ -284,7 +289,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,te
 
 #complaints .form-card .button-gold:hover {
   transform: translateY(-2px);
-  filter: brightness(1.06);
+  filter: brightness(1.04);
   box-shadow: 0 8px 24px rgba(22, 133, 189, 0.24);
 }
 

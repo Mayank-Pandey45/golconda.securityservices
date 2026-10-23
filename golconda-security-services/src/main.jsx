@@ -522,7 +522,7 @@ function App() {
 
     return <div className="gss-admin-shell">
       <style>{`
-        .gss-admin-shell{min-height:100vh;background:#f4f6fa;color:#172033;font-family:Inter,system-ui,sans-serif}
+        .gss-admin-shell{min-height:100vh;background:#f4f6fa;color:#172033;font-family:Inter,system-ui,sans-serif;--button-primary-bg:#caa65b;--button-primary-hover:#b5893c;--button-primary-active:#a97d31;--button-primary-fg:#151b27;--button-secondary-bg:#fff;--button-secondary-hover:#edf2f7;--button-secondary-active:#e2e8f0;--button-secondary-fg:#263246;--button-border:#d6dce5;--button-disabled-bg:#e5e7eb;--button-disabled-fg:#475467;--button-danger-bg:#fff1f0;--button-danger-fg:#8a1c13;--button-focus:#0b5278}
         .gss-admin-header{height:auto;min-height:78px;padding:16px clamp(18px,5vw,64px);background:#101827;color:#fff;display:flex;align-items:center;justify-content:space-between;gap:18px;border-bottom:1px solid #283449}
         .gss-admin-brand,.gss-admin-account,.gss-admin-account button,.gss-admin-secondary,.gss-admin-primary,.gss-admin-item-actions button{display:flex;align-items:center;gap:10px}
         .gss-admin-mark{width:44px;height:44px;border-radius:12px;display:grid;place-items:center;background:#101827;color:#d7b56d;border:2px solid #d7b56d;overflow:hidden}
@@ -535,8 +535,21 @@ function App() {
         .gss-admin-welcome h1 em{font-style:normal;color:#9a742d}
         .gss-admin-welcome p,.gss-admin-panel-heading p{color:#667085;margin:0;line-height:1.6}
         .gss-admin-shell .eyebrow{font-size:11px;letter-spacing:.15em;color:#99752e;font-weight:800}
-        .gss-admin-secondary,.gss-admin-primary{border:1px solid #d6dce5;border-radius:8px;padding:11px 14px;background:#fff;color:#263246;font-weight:700;cursor:pointer;justify-content:center}
-        .gss-admin-primary{background:#caa65b;color:#151b27;border-color:#caa65b}
+        .gss-admin-secondary,.gss-admin-primary{border:1px solid var(--button-border);border-radius:8px;padding:11px 14px;background:var(--button-secondary-bg);color:var(--button-secondary-fg);font-weight:700;cursor:pointer;justify-content:center;transition:background-color .16s,border-color .16s,color .16s}
+        .gss-admin-secondary:hover:not(:disabled){background:var(--button-secondary-hover);color:var(--button-secondary-fg);border-color:#aab7c5}
+        .gss-admin-secondary:active:not(:disabled){background:var(--button-secondary-active);color:var(--button-secondary-fg)}
+        .gss-admin-primary{background:var(--button-primary-bg);color:var(--button-primary-fg);border-color:var(--button-primary-bg)}
+        .gss-admin-primary:hover:not(:disabled){background:var(--button-primary-hover);color:var(--button-primary-fg);border-color:var(--button-primary-hover)}
+        .gss-admin-primary:active:not(:disabled){background:var(--button-primary-active);color:var(--button-primary-fg);border-color:var(--button-primary-active)}
+        .gss-admin-secondary:disabled,.gss-admin-primary:disabled{background:var(--button-disabled-bg);color:var(--button-disabled-fg);border-color:#cbd5e1;opacity:1;cursor:not-allowed}
+        .gss-admin-shell .gss-admin-account button:hover:not(:disabled){background:#1d2a3b;color:#fff;border-color:#8ca2bd}
+        .gss-admin-shell .gss-admin-account button:disabled{background:transparent;color:#dce3ee;border-color:#465267;opacity:1;cursor:not-allowed}
+        .gss-admin-shell .gss-admin-item-actions button:hover:not(:disabled){background:var(--button-secondary-hover);color:var(--button-secondary-fg);border-color:#aab7c5}
+        .gss-admin-shell .gss-admin-item-actions button.danger{color:#b42318;border-color:#fecdca}
+        .gss-admin-shell .gss-admin-item-actions button.danger:hover:not(:disabled){background:var(--button-danger-bg);color:var(--button-danger-fg);border-color:#fda29b}
+        .gss-admin-shell .gss-admin-item-actions button:disabled,.gss-admin-shell .gss-admin-stats>button:disabled{background:var(--button-disabled-bg);color:var(--button-disabled-fg);border-color:#cbd5e1;opacity:1;cursor:not-allowed}
+        .gss-admin-shell .gss-admin-stats>button:hover:not(:disabled){background:#f5f7fa;color:#263246;border-color:#aab7c5}
+        .gss-admin-shell .gss-admin-secondary:focus-visible,.gss-admin-shell .gss-admin-primary:focus-visible,.gss-admin-shell .gss-admin-account button:focus-visible,.gss-admin-shell .gss-admin-item-actions button:focus-visible,.gss-admin-shell .gss-admin-stats>button:focus-visible{outline:2px solid var(--button-focus);outline-offset:2px}
         .gss-admin-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:22px}
         .gss-admin-stats>button{display:flex;align-items:center;text-align:left;gap:12px;border:1px solid #e0e5ed;background:#fff;border-radius:12px;padding:16px;color:#334155;cursor:pointer;box-shadow:0 4px 15px #18223808}
         .gss-admin-stats>button.active{border-color:#caa65b;box-shadow:0 0 0 2px #caa65b33;background:#fffcf5}

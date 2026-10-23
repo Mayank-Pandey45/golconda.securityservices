@@ -5,6 +5,7 @@ import { test } from "node:test";
 const coreMigration = await readFile(new URL("../supabase/migrations/20261021151502_operations_platform_core.sql", import.meta.url), "utf8");
 const outboxMigration = await readFile(new URL("../supabase/migrations/20261021191500_advance_integrations_outbox.sql", import.meta.url), "utf8");
 const preflight = await readFile(new URL("../supabase/preflight_staging.sql", import.meta.url), "utf8");
+const payrollRecoveryMigration = await readFile(new URL("../supabase/migrations/20261023164027_payroll_advance_recovery_cap.sql", import.meta.url), "utf8");
 
 function referenceMonthlyGross(monthlySalary, periodStart, joiningDate = null, employmentEndDate = null, status = "active") {
   const [year, month] = periodStart.split("-").map(Number);
@@ -59,6 +60,19 @@ test("payroll SQL keeps explicit Asia/Kolkata boundaries, exclusive next-month c
   assert.match(payroll, /person\.joining_date, p_period/);
   assert.doesNotMatch(payroll, /period_end::timestamptz/);
   assert.doesNotMatch(payroll, /person\.status\s*=\s*'active'/);
+});
+
+test("advance recovery cap is admin-only, atomic across Sites, and leaves the append-only schema intact", () => {
+  assert.match(payrollRecoveryMigration, /security invoker/i);
+  assert.match(payrollRecoveryMigration, /p_actor_id is null or not exists\s*\(select 1 from public\.admin_users/i);
+  assert.match(payrollRecoveryMigration, /from public\.advances[\s\S]*?for update/i);
+  assert.match(payrollRecoveryMigration, /from public\.guards where id = employee_id_value for update/i);
+  assert.match(payrollRecoveryMigration, /from public\.supervisors where id = employee_id_value for update/i);
+  assert.match(payrollRecoveryMigration, /from public\.field_officers where id = employee_id_value for update/i);
+  assert.match(payrollRecoveryMigration, /salary_available - already_recovered/i);
+  assert.match(payrollRecoveryMigration, /errcode = '23514'/i);
+  assert.match(coreMigration, /unique \(advance_id, salary_period\)/i);
+  assert.doesNotMatch(payrollRecoveryMigration, /drop\s+(?:table|column)|truncate|delete from public\./i);
 });
 
 test("site import closes active assignments for inactive or relieved staff before considering new assignments", () => {

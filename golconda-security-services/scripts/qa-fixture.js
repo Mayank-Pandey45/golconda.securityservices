@@ -1,7 +1,7 @@
 // Local synthetic QA only. No environment database URL, production key or rows are read.
 import express from 'express';
 import { createClient } from '@supabase/supabase-js';
-import { isolatedDatabase, migration, lifecycleMigration, metadata } from '../supabase/tests/isolatedDatabase.js';
+import { isolatedDatabase, migration, lifecycleMigration, payrollRecoveryMigration, metadata } from '../supabase/tests/isolatedDatabase.js';
 import { createApp } from '../server/index.js';
 import { pathToFileURL } from 'node:url';
 
@@ -25,6 +25,7 @@ export async function createQaFixture({port=0}={}){
  await db.exec(`insert into auth.users values ('${QA_ADMIN}'),('${QA_OUTSIDER}');insert into public.admin_users(user_id) values('${QA_ADMIN}');`);
  await db.exec(migration);
  await db.exec(lifecycleMigration);
+ await db.exec(payrollRecoveryMigration);
  const app=express(),files=new Map(),failures=[];let server;let tail=Promise.resolve();
  // PGlite is one connection: serialize whole transactions, including parallel UI reads.
  const transaction=(role,uid,fn)=>{const run=tail.then(async()=>{await db.exec('begin');try{await db.exec('set local role '+ident(role));await db.query("select set_config('request.jwt.claim.sub',$1,true)",[uid]);const r=await fn();await db.exec('commit');return r;}catch(e){await db.exec('rollback');throw e;}});tail=run.catch(()=>{});return run;};

@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 export const metadata = JSON.parse(await readFile(new URL("./production-schema-metadata.json", import.meta.url), "utf8"));
 export const migration = await readFile(new URL("../migrations/20261022190000_record_management.sql", import.meta.url), "utf8");
 export const lifecycleMigration = await readFile(new URL("../migrations/20261023153124_employee_exit_and_site_closure.sql", import.meta.url), "utf8");
+export const payrollRecoveryMigration = await readFile(new URL("../migrations/20261023164027_payroll_advance_recovery_cap.sql", import.meta.url), "utf8");
 const ident = value => '"' + value.replaceAll('"', '""') + '"';
 export async function isolatedDatabase() {
   const db = new PGlite();

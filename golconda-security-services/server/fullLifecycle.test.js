@@ -51,14 +51,25 @@ test('real HTTP API -> synthetic PostgreSQL: all module lifecycles, finance and 
   await t.test('advance recording, recovery, payroll, invalid money and retained financial rows',async()=>{
    for(const e of employees){const b={action:'record',employee_type:e.type,employee_id:e.id,site_id:siteB,amount:'1000.25',payment_mode:'cash',occurred_at:'2026-10-15T04:30:00Z',description:'Synthetic advance',external_reference:'QA-ADVANCE-'+e.type};const [a,retry]=await Promise.all([ok('/api/operations/advances',b,201),ok('/api/operations/advances',b,201)]);assert.ok(a.advance_id);assert.equal(retry.advance_id,a.advance_id);assert.equal((await request('/api/operations/advances',{...b,amount:'1001.25'})).status,409);await ok('/api/operations/advances',{action:'recover',advance_id:a.advance_id,amount:'100.25',salary_period:'2026-10',notes:'Synthetic recovery'},201);assert.equal((await request('/api/operations/advances',{...b,amount:'-1'})).status,400);}
    const existing=(await rows('advances'))[0];assert.equal((await request('/api/operations/advances',{action:'recover',advance_id:existing.id,amount:1,salary_period:'2026-10',notes:'Duplicate synthetic allocation'})).status,409);assert.equal((await rows('advances')).length,3);assert.equal((await rows('advance_recoveries')).length,3);assert.equal((await rows('advance_sheet_sync_outbox')).length,0);
-   const payroll=await ok('/api/operations/payroll?period=2026-10');assert.equal(payroll.period,'2026-10');assert.ok(payroll.employees.length>=3);const list=await ok('/api/operations/advances');assert.equal(list.advances.length,3);assert.ok(list.advances.every(x=>x.remaining_balance===900));
+   const payroll=await ok('/api/operations/payroll?period=2026-10');assert.equal(payroll.period,'2026-10');assert.ok(payroll.employees.length>=3);
+   for(const employee of employees){const row=payroll.employees.find(item=>item.employee_type===employee.type&&item.employee_id===employee.id);assert.equal(row.gross_for_period,30000);assert.equal(row.finalized_recovery_amount,100.25);assert.equal(row.proposed_advance_recovery,900);assert.equal(row.net_payable_after_proposed_recovery,28999.75);}
+   const guard=employees.find(employee=>employee.type==='guard');
+   const second=await ok('/api/operations/advances',{action:'record',employee_type:'guard',employee_id:guard.id,site_id:siteB,amount:50000,payment_mode:'online',occurred_at:'2026-10-15T05:00:00Z',description:'Synthetic cross-site recovery-cap test',external_reference:'QA-ADVANCE-GUARD-SECOND'},201);
+   const beforeRecoveries=(await rows('advance_recoveries')).length;
+   assert.equal((await request('/api/operations/advances',{action:'recover',advance_id:second.advance_id,amount:30000,salary_period:'2026-10',notes:'Synthetic over-cap recovery'})).status,409);
+   assert.equal((await rows('advance_recoveries')).length,beforeRecoveries);
+   await ok('/api/operations/advances',{action:'recover',advance_id:second.advance_id,amount:29899.75,salary_period:'2026-10',notes:'Synthetic recovery at salary cap'},201);
+   const guardPayroll=(await ok('/api/operations/payroll?period=2026-10')).employees.find(item=>item.employee_type==='guard'&&item.employee_id===guard.id);
+   assert.equal(guardPayroll.finalized_recovery_amount,30000);assert.equal(guardPayroll.proposed_advance_recovery,0);assert.equal(guardPayroll.net_payable_after_proposed_recovery,0);assert.equal(guardPayroll.advance_outstanding_after_proposed_recovery,21000.25);
+   const list=await ok('/api/operations/advances');assert.equal(list.advances.length,4);assert.equal(list.advances.find(row=>row.id===second.advance_id).remaining_balance,20100.25);
+   assert.equal((await rows('advance_sheet_sync_outbox')).length,0);
   });
   for(const e of employees)await t.test(e.module+' archive/restore/deactivate and linked deletion conflict retain history',async()=>{
    await action(e.module,e.id,'archive');let r=(await rows(e.table)).find(x=>x.id===e.id);assert.ok(r.archived_at);assert.equal(r.status,'inactive');
    assert.equal((await request('/api/operations/records',{module:e.module,id:e.id,action:'delete',confirmation:'DELETE '+e.id})).status,409);
    await action(e.module,e.id,'restore');await action(e.module,e.id,'activate');await action(e.module,e.id,'deactivate');
    r=(await rows(e.table)).find(x=>x.id===e.id);assert.equal(r.archived_at,null);assert.equal(r.status,'inactive');assert.equal(r.joining_date,'2026-04-10');
-   assert.equal((await rows('advances')).length,3);assert.equal((await rows('employee_compensation')).length,3);
+   assert.equal((await rows('advances')).length,4);assert.equal((await rows('employee_compensation')).length,3);
   });
   await t.test('Site closure ends assignments atomically without changing employment or deleting financial history',async()=>{
    const guard=employees.find(employee=>employee.type==='guard');
@@ -68,7 +79,7 @@ test('real HTTP API -> synthetic PostgreSQL: all module lifecycles, finance and 
    const result=await ok('/api/operations/sites',closure);assert.equal(result.status,'inactive');
    const savedSite=(await rows('sites')).find(row=>row.id===siteA);assert.equal(savedSite.closure_reason,'Contract expired');assert.equal(String(savedSite.closure_date).slice(0,10),today);
    const assignment=(await rows('guard_site_assignments')).find(row=>row.guard_id===guard.id&&row.site_id===siteA);assert.equal(assignment.valid_to,today);
-   assert.equal((await rows('guards')).find(row=>row.id===guard.id).status,'active');assert.equal((await rows('advances')).length,3);
+   assert.equal((await rows('guards')).find(row=>row.id===guard.id).status,'active');assert.equal((await rows('advances')).length,4);
    assert.equal((await ok('/api/operations/sites',closure)).already_applied,true);
    assert.equal((await request('/api/operations/sites',{...closure,closure_reason:''})).status,400);
   });
@@ -83,7 +94,7 @@ test('real HTTP API -> synthetic PostgreSQL: all module lifecycles, finance and 
     const assignmentTable=employee.type==='guard'?'guard_site_assignments':`${employee.type}_site_assignments`,fk=employee.type==='guard'?'guard_id':employee.type==='supervisor'?'supervisor_id':'field_officer_id';
     assert.equal((await rows(assignmentTable)).filter(row=>row[fk]===employee.id&&row.valid_to===null).length,0);
     assert.equal((await ok(path,body)).already_applied,true);
-    assert.equal((await rows('advances')).length,3);
+    assert.equal((await rows('advances')).length,4);
    }
    const guard=employees.find(employee=>employee.type==='guard');
    assert.equal((await request('/api/operations/guards',{action:'exit',guard_id:guard.id,exit_reason:'Other',last_working_date:today,remarks:''})).status,400);
@@ -92,7 +103,7 @@ test('real HTTP API -> synthetic PostgreSQL: all module lifecycles, finance and 
   });
   await t.test('Site archive/restore and delete conflict preserve employee and financial identities',async()=>{
    await action('sites',siteB,'archive');assert.equal((await request('/api/operations/records',{module:'sites',id:siteB,action:'delete',confirmation:'DELETE '+siteB})).status,409);await action('sites',siteB,'restore');
-   assert.equal((await rows('sites')).find(x=>x.id===siteB).status,'inactive');for(const e of employees)assert.ok((await rows(e.table)).some(x=>x.id===e.id));assert.equal((await rows('advances')).length,3);
+   assert.equal((await rows('sites')).find(x=>x.id===siteB).status,'inactive');for(const e of employees)assert.ok((await rows(e.table)).some(x=>x.id===e.id));assert.equal((await rows('advances')).length,4);
   });
   for(const module of ['services','events','notifications'])await t.test(module+' full create/read/edit/hide/publish/archive/restore/permanent-delete lifecycle',async()=>{
    const made=await action(module,null,'save',{title:'QA '+module,...(module==='notifications'?{message:'Synthetic message'}:{description:'Synthetic description'})});const id=made.id;
@@ -134,7 +145,7 @@ test('real HTTP API -> synthetic PostgreSQL: all module lifecycles, finance and 
    const batch=Array.from({length:500},(_,n)=>({'Full Name':'QA batch '+n,Phone:String(9999700000+n),'Joining Date':'01/04/26'}));
    const result=await ok('/api/guards/import',{rows:batch});assert.equal(result.inserted,500);assert.equal(result.failed,0);assert.equal((await rows('guards')).length,before+500);
    assert.equal((await request('/api/guards/import',{rows:[...batch,batch[0]]})).status,400);
-   assert.equal((await rows('advances')).length,3);assert.equal((await rows('advance_recoveries')).length,3);
+   assert.equal((await rows('advances')).length,4);assert.equal((await rows('advance_recoveries')).length,4);
   });
  }finally{await f.close();}
 });

@@ -1,6 +1,7 @@
 import { normalizeEmployeeProfile, normalizePhoneDigits, normalizeSiteImportRows, normalizeSiteRecord, OperationsValidationError } from "../shared/operationsValidation.js";
 import { readAllRows } from "./paginatedQuery.js";
 import { isGoogleSheetsSyncConfigured } from "./googleSheetsIntegration.js";
+import { enrichPayrollRows } from "./payrollCalculations.js";
 
 export class OperationsRequestError extends Error {
   constructor(message, status = 400, details) {
@@ -495,5 +496,5 @@ export async function getPayrollSummary(database, period, actorId) {
   const date = monthDate(period);
   const { data, error } = await database.rpc("get_payroll_summary", { p_period: date, p_actor_id: actorId });
   if (error) throw new OperationsRequestError("Salary estimates could not be calculated.", 503);
-  return { period: date.slice(0, 7), employees: Array.isArray(data) ? data : [] };
+  return { period: date.slice(0, 7), employees: enrichPayrollRows(data) };
 }

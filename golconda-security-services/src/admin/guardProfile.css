@@ -13,3 +13,12 @@
 .guard-profile-assignment-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr));gap:9px}.guard-profile-assignment-grid article{display:grid;gap:6px;padding:13px;border:1px solid #dce4eb;border-radius:8px;background:#f8fafc;color:#43566a;font-size:12px}.guard-profile-assignment-grid a{font-size:14px}
 .guard-profile-unavailable{display:flex;align-items:flex-start;gap:8px;margin:0;padding:12px;border-left:3px solid #557187;background:#f3f6f8;color:#34495e;font-size:12px;line-height:1.6}.guard-profile-unavailable svg{flex:0 0 auto;margin-top:2px}.guard-profile-error{color:#8f1d16!important;background:#fff3f2;border:1px solid #efc0bc;padding:11px;border-radius:7px}.guard-profile-state{padding:24px;background:#fff;border:1px solid #e1e7ed;border-radius:10px;color:#26384b}
 @media(max-width:600px){.guard-profile-header{padding:16px}.guard-profile-actions{width:100%}.guard-profile-actions a{flex:1 1 160px}.guard-profile-section{padding:15px}.guard-profile-section-heading{align-items:stretch}.guard-profile-section-heading>.gss-admin-secondary{width:100%}.guard-profile-table{min-width:760px}.guard-profile-ledger-summary span:last-child{margin-left:0}}
+.guard-profile-salary-breakdown{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,190px),1fr));gap:10px;margin:14px 0 18px}
+.guard-profile-salary-breakdown article{display:grid;align-content:start;gap:7px;min-width:0;padding:14px;border:1px solid #dfe5ec;border-radius:8px;background:#f8fafc}
+.guard-profile-salary-breakdown small{color:#475467;font-size:11px;font-weight:700;line-height:1.45}
+.guard-profile-salary-breakdown strong{color:#172033;font-size:19px;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+.guard-profile-salary-breakdown span{color:#5b6473;font-size:11px;line-height:1.5}
+.guard-profile-salary-breakdown .guard-profile-salary-net{border-color:#aebdce;background:#eef4f8}
+.guard-profile-salary-breakdown .guard-profile-salary-net strong{color:#123c56}
+@media(max-width:600px){.guard-profile-salary-breakdown{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.guard-profile-salary-breakdown article{padding:11px}.guard-profile-salary-breakdown strong{font-size:16px}}
+@media(max-width:380px){.guard-profile-salary-breakdown{grid-template-columns:1fr}}
