@@ -2,11 +2,12 @@ import RecordActions, { RecordFilter } from "./RecordActions.jsx";
 import LifecycleDialog from "./LifecycleDialog.jsx";
 import { matchesRecordState } from "../../shared/recordLifecycle.js";
 import { queueOrphan } from "./recordClient.js";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Camera, Download, FileSpreadsheet, FileText, Pencil, Plus, RefreshCw, Upload, X } from "lucide-react";
 import { supabase } from "../supabase";
 import { apiUrl, readApiResponse } from "../api";
 import { normalizeGuardRow } from "../../shared/guardValidation.js";
+import EmployeeIdentityFields from "./EmployeeIdentityFields.jsx";
 import {
   downloadFile,
   guardRecordsToCsv,
@@ -108,6 +109,7 @@ export default function GuardManagement({ items = [], sites = [], search = "", o
   const [signedPhotos, setSignedPhotos] = useState({});
   const [exitTarget, setExitTarget] = useState(null);
   const [exitFromProfile, setExitFromProfile] = useState(false);
+  const identityRef = useRef(null);
 
   useEffect(() => {
     let active = true;
@@ -172,6 +174,7 @@ export default function GuardManagement({ items = [], sites = [], search = "", o
     setForm(initialForm);
     setEditingId(null);
     setPhotoFile(null);
+    identityRef.current?.reset();
   }
 
   function startEditing(item) {
@@ -207,6 +210,7 @@ export default function GuardManagement({ items = [], sites = [], search = "", o
     setMessage("");
     let uploadedPath = "";
     let saved = false;
+    let savedEmployeeId = null;
     try {
       const wasEditing = Boolean(editingId);
       const normalized = normalizeGuardRow({
@@ -251,8 +255,10 @@ export default function GuardManagement({ items = [], sites = [], search = "", o
         salary_effective_date: normalized.salary_effective_date,
         salary_notes: normalized.salary_notes,
       };
-      await postGuard({ action: "save", guard_id: editingId, person, site_ids: form.site_ids.map(Number) });
+      const result = await postGuard({ action: "save", guard_id: editingId, person, site_ids: form.site_ids.map(Number) });
       saved = true;
+      savedEmployeeId = result.guard_id;
+      await identityRef.current?.save(savedEmployeeId);
       const previousPhotoPath = items.find(item => item.id === editingId)?.photo_storage_path;
       // Replaced private photos are queued by the database; never removed inline.
       resetForm();
@@ -260,7 +266,8 @@ export default function GuardManagement({ items = [], sites = [], search = "", o
       await onMetricsRefresh();
       setMessage(wasEditing ? "Guard record and site assignments updated." : "Guard record added.");
     } catch (error) {
-      setMessage(`Save failed: ${error.message}`);
+      if (saved && savedEmployeeId) setEditingId(savedEmployeeId);
+      setMessage(saved ? `Guard profile saved, but identity changes were not confirmed: ${error.message}` : `Save failed: ${error.message}`);
     } finally {
       setUploadingPhoto(false);
       const orphanMessage = uploadedPath && !saved ? await queueOrphan(employeeBucket, uploadedPath) : "";
@@ -365,6 +372,7 @@ export default function GuardManagement({ items = [], sites = [], search = "", o
       <label>Date of Birth (optional)<input type="date" value={form.date_of_birth} onChange={event => setForm({ ...form, date_of_birth: event.target.value })}/></label>
       <label className="full">Residential Address (optional)<textarea rows="2" maxLength="1000" value={form.residential_address} onChange={event => setForm({ ...form, residential_address: event.target.value })}/></label>
       <label className="full">Private profile photo<input type="file" accept="image/jpeg,image/png,image/webp" onChange={event => setPhotoFile(event.target.files?.[0] || null)}/><small>{photoFile?.name || (form.photo_storage_path ? "A private photo is already saved." : "No photo stored.")} · JPEG, PNG, WebP · maximum 5 MB</small></label>
+      <EmployeeIdentityFields ref={identityRef} employeeType="guard" employeeId={editingId}/>
       {uploadingPhoto && <div className="file-upload-progress full" role="status"><progress aria-label="Uploading private guard photo"/><span>Uploading private photo… Keep this page open until it finishes.</span></div>}
       <fieldset className="guard-site-checks"><legend>Assigned sites ({form.site_ids.length})</legend><div>{sites.filter(site => site.status !== "inactive").map(site => <label key={site.id}><input type="checkbox" checked={form.site_ids.includes(String(site.id))} onChange={() => setForm({ ...form, site_ids: form.site_ids.includes(String(site.id)) ? form.site_ids.filter(id => id !== String(site.id)) : [...form.site_ids, String(site.id)] })}/><span>{site.title}<small>{site.site_code || ""}</small></span></label>)}</div></fieldset>
       <div className="guard-salary-divider"><strong>Salary and assignment</strong><span>Visible to authorized administrators only. Daily rates are profile-only; monthly estimates require a monthly gross amount because attendance is not tracked.</span></div>

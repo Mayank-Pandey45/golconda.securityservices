@@ -1,3 +1,7 @@
+## Current Telegram release state — 24 October 2026
+
+The owner-admin Telegram advance workflow and protected employee identity fields are implemented. Migration `20261023184408_secure_telegram_admin_and_employee_identity` is applied to production `ntcvrxdyukfpobjvxxiz`; postflight confirmed RLS and service-role-only access, and all nine new tables are empty. The live bot still needs its Telegram token and webhook secret in Vercel Production. Identity values remain unavailable for new writes until the owner configures `EMPLOYEE_IDENTITY_ENCRYPTION_KEY` there. No employee identity or advance records were added for release testing.
+
 ## Website QA update — 23 October 2026
 
 Nine issue groups fixed and covered in WEBSITE_QA_REPORT.md. Final automated
@@ -34,37 +38,27 @@ Google Sheets remain disabled. Prior blocked/backup/setup notes below are histor
 
 # Telegram and Google Sheets setup
 
-Both integrations are implemented as optional, server-only Vercel functions. Supabase remains the source of truth. **Both integrations must remain disabled for this release.** Do not add integration credentials to Vercel or configure a production Cron. The setup below is for a future Preview-only validation after separate owner approval.
+Telegram and Google Sheets are optional server-only integrations. Supabase remains the source of truth. The Telegram integration is owner-admin only and stays unavailable until its production secrets and webhook are configured. Google Sheets remains disabled unless separately configured.
 
-## Telegram advance entry
+## Telegram owner-admin advance entry
 
-The webhook is `POST /api/integrations/telegram`. It accepts private chats only and the exact command format:
+The webhook is `POST /api/integrations/telegram`. It accepts private chats only. An owner administrator signs in to the dashboard, generates a one-time linking code in **Telegram Integration**, then sends `/link CODE` to the bot. Codes are stored as hashes, expire after ten minutes, and can be used once. The bot rechecks that the linked identity is still the single authorized admin before each operation. Telegram usernames are not used for authorization; group chats cannot perform reads or writes.
 
-```text
-/advance <employee_code> <amount> <site_code> [description]
-```
+The bot accepts natural-language English, Hinglish, Hindi, and Devanagari numerals, including amount-before-name messages and no-space amount/name forms. It matches only active employee and Site records, checks their current assignment, and stages a short-lived preview. **No advance is saved until the linked administrator taps Confirm & Save.** Edits require another confirmation. Writes use the existing `record_advance` routine with a stable idempotency reference. Ambiguities, unknown abbreviations, expenses, bad amounts, or Site mismatches do not create an advance. Aliases and abbreviation expansions must be explicitly approved in the dashboard.
 
-For example: `/advance GSS-GRD-102 1500 SITE-05 Cash advance`. Employee codes and site codes must match one active directory record. The database routine also verifies the person's active assignment to that site. Names are not used for matching.
+Commands include `/start`, `/help`, `/dashboard`, `/guards`, `/sites`, `/search`, `/salary`, `/report`, `/advance`, `/newadvance`, `/link`, `/unlink`, and `/cancel`. Actual paid and pending salary amounts remain unavailable because the application has no authoritative salary-payment ledger.
 
-Before enabling it:
-
-1. Create a bot with BotFather and retain its token in a password manager.
-2. Obtain the numeric Telegram user ID for each permitted administrator. This function accepts a comma-separated user allowlist and rejects group chats.
-3. In Vercel Preview, configure `TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET` (at least 32 characters), `TELEGRAM_ALLOWED_USER_IDS`, and `TELEGRAM_ADMIN_USER_ID`. The last value must be an existing administrator UUID in Supabase `admin_users`.
-4. Configure these values only in encrypted Vercel environment settings. Never add them to Vite variables, source files, deployment logs, or chat messages.
-5. Apply the pending Supabase migrations first. Then register the Preview webhook with Telegram using the `/setWebhook` Bot API and set its `secret_token` to the exact `TELEGRAM_WEBHOOK_SECRET` value. Use `https://<preview-host>/api/integrations/telegram` as the URL.
-6. Test an authorized successful command, bad amount, unknown employee/site code, unauthorized sender, and repeated webhook delivery against Preview. Do not configure Production as part of this release; future activation requires separate approval.
-
-The handler validates Telegram's `X-Telegram-Bot-Api-Secret-Token` before database access and checks the sender allowlist before parsing. It records Telegram's message timestamp in UTC, tags the source as `telegram`, and uses Telegram's `update_id` as a stable external reference. A unique database index and the `record_advance` routine make concurrent/repeated deliveries one logical advance. The configured admin UUID is recorded as the responsible administrator. Responses do not include private profile data.
-
-Required variables:
+Configure these values in Vercel Production environment settings, never in Vite variables, source files, deployment logs, or chat messages:
 
 | Variable | Purpose |
 | --- | --- |
-| `TELEGRAM_BOT_TOKEN` | Sends command confirmations through the Bot API. |
-| `TELEGRAM_WEBHOOK_SECRET` | Verifies Telegram's webhook header. |
-| `TELEGRAM_ALLOWED_USER_IDS` | Comma-separated numeric private-chat sender IDs. |
-| `TELEGRAM_ADMIN_USER_ID` | Existing Supabase `admin_users.user_id` used for the audited write. |
+| `TELEGRAM_BOT_TOKEN` | Sends owner-admin bot replies. |
+| `TELEGRAM_WEBHOOK_SECRET` | At least 32 characters; verifies Telegram's `X-Telegram-Bot-Api-Secret-Token` header. |
+| `EMPLOYEE_IDENTITY_ENCRYPTION_KEY` | Base64 encoding of exactly 32 random bytes; protects optional ID values on the server. |
+
+Create the identity key in a secure environment, for example with `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"`, then store it only as a server-side Vercel Production secret. Do not print it into a terminal transcript or commit it. The application accepts only Aadhaar's last four digits; it never accepts a full Aadhaar number. PAN and other ID values are encrypted at rest, masked on reads, and their writes fail closed until this key exists.
+
+After the migration is applied and the token and webhook secret are configured, set Telegram's webhook URL to `https://golconda-securityservices.vercel.app/api/integrations/telegram` and set `secret_token` to the exact `TELEGRAM_WEBHOOK_SECRET`. Verify it with Telegram's `getWebhookInfo`; do not place credentials in the URL. Keep bot credentials and the identity encryption key server-only. Never send any identity values through Telegram.
 
 ## Google Sheets advance synchronization
 

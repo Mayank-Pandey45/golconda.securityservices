@@ -12,7 +12,7 @@ test('real HTTP API -> synthetic PostgreSQL: all module lifecycles, finance and 
  const employees=[];let siteA,siteB;
  try{
   await t.test('every protected route rejects missing, expired and non-admin sessions',async()=>{
-   for(const path of ['/api/operations/guards','/api/operations/people','/api/operations/sites','/api/operations/records','/api/guards/import','/api/operations/site-import','/api/operations/advances']){
+   for(const path of ['/api/operations/guards','/api/operations/people','/api/operations/sites','/api/operations/records','/api/guards/import','/api/operations/site-import','/api/operations/advances','/api/integrations/telegram/admin']){
     assert.equal((await request(path,{},null)).status,401,path);
     assert.equal((await request(path,{},'expired-synthetic')).status,401,path);
     assert.equal((await request(path,{},QA_OTHER_TOKEN)).status,403,path);
@@ -78,7 +78,7 @@ test('real HTTP API -> synthetic PostgreSQL: all module lifecycles, finance and 
    const closure={action:'close',site_id:siteA,closure_reason:'Contract expired',contract_end_date:today,remarks:'Synthetic QA closure'};
    const result=await ok('/api/operations/sites',closure);assert.equal(result.status,'inactive');
    const savedSite=(await rows('sites')).find(row=>row.id===siteA);assert.equal(savedSite.closure_reason,'Contract expired');assert.equal(String(savedSite.closure_date).slice(0,10),today);
-   const assignment=(await rows('guard_site_assignments')).find(row=>row.guard_id===guard.id&&row.site_id===siteA);assert.equal(assignment.valid_to,today);
+   const assignments=(await rows('guard_site_assignments')).filter(row=>row.guard_id===guard.id&&row.site_id===siteA).sort((a,b)=>Number(b.id)-Number(a.id));const assignment=assignments[0];assert.equal(assignment.valid_to,today);
    assert.equal((await rows('guards')).find(row=>row.id===guard.id).status,'active');assert.equal((await rows('advances')).length,4);
    assert.equal((await ok('/api/operations/sites',closure)).already_applied,true);
    assert.equal((await request('/api/operations/sites',{...closure,closure_reason:''})).status,400);

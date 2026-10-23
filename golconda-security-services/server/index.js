@@ -14,6 +14,8 @@ import {
 import { GuardImportRequestError, importGuardRows } from "./guardImport.js";
 import { getPublicProfileDocuments } from "./publicProfile.js";
 import { handleTelegramWebhook } from "./telegramIntegration.js";
+import { handleTelegramAdmin, TelegramAdminError } from "./telegramAdmin.js";
+import { EmployeeIdentityError, getEmployeeIdentity, saveEmployeeIdentity } from "./employeeIdentity.js";
 import { hasCronAuthorization, isGoogleSheetsSyncConfigured, SheetsSyncError, syncAdvanceSheetOutbox } from "./googleSheetsIntegration.js";
 import { adjustAdvance, closeSite, createSalaryAdjustment, exitEmployee, getPayrollSummary, importSiteRows, listAdvances, OperationsRequestError, recordAdvance, recoverAdvance, requireAdmin, saveEmployee, saveGuard, saveSite } from "./operations.js";
 
@@ -108,7 +110,8 @@ export function createApp({
     }
   });
 
-  app.post("/api/integrations/telegram", async (req, res) => {
+  const telegramRateLimiter = createIntakeRateLimiter({ limit: 30, windowMs: 60 * 1000 });
+  app.post("/api/integrations/telegram", telegramRateLimiter, async (req, res) => {
     const result = await handleTelegramWebhook({
       body: req.body,
       secretToken: req.headers["x-telegram-bot-api-secret-token"],
@@ -117,6 +120,18 @@ export function createApp({
       fetchImpl,
     });
     return res.status(result.status).json(result.body);
+  });
+
+  app.post("/api/integrations/telegram/admin", operationsLimiter, async (req, res, next) => {
+    if (!database) return res.status(503).json({ error: "Telegram integration storage is not configured." });
+    try {
+      const actorId = await requireAdmin(database, req.headers.authorization);
+      return res.json(await handleTelegramAdmin({ database, actorId, input: req.body, env }));
+    } catch (error) {
+      if (error instanceof OperationsRequestError) return res.status(error.status).json({ error: error.message, ...(error.details ? { details: error.details } : {}) });
+      if (error instanceof TelegramAdminError) return res.status(error.status).json({ error: error.message });
+      return next(error);
+    }
   });
 
   app.get("/api/integrations/sheets-sync", async (req, res) => {
@@ -215,12 +230,15 @@ export function createApp({
     if (!database) return res.status(503).json({ error: "Operations storage is not configured." });
     try {
       const actorId = await requireAdmin(database, req.headers.authorization);
+      if (req.body?.action === "identity_get") return res.json(await getEmployeeIdentity(database, req.body.employee_type, req.body.employee_id));
+      if (req.body?.action === "identity_save") return res.json(await saveEmployeeIdentity(database, req.body, actorId, env));
       if (req.body?.action === "delete") return res.json(await manageRecord(database, req.headers.authorization, { module: (req.body.employee_type === "supervisor" ? "supervisors" : req.body.employee_type === "field_officer" ? "fieldOfficers" : ""), id: req.body.employee_id, action: "delete", confirmation: req.body.confirmation }));
       if (req.body?.action === "exit") return res.json(await exitEmployee(database, req.body, actorId));
       if (req.body?.action === "save") return res.json(await saveEmployee(database, req.body, actorId));
       return res.status(400).json({ error: "Unknown employee operation." });
     } catch (error) {
       if (error instanceof OperationsRequestError) return res.status(error.status).json({ error: error.message, ...(error.details ? { details: error.details } : {}) });
+      if (error instanceof EmployeeIdentityError) return res.status(error.status).json({ error: error.message });
       return next(error);
     }
   });

@@ -16,6 +16,7 @@ import ProfileVault from "./admin/ProfileVault.jsx";
 import SiteManagement from "./admin/SiteManagement.jsx";
 import PeopleManagement from "./admin/PeopleManagement.jsx";
 import AdvancesManagement from "./admin/AdvancesManagement.jsx";
+import TelegramIntegration from "./admin/TelegramIntegration.jsx";
 import GuardProfile from "./admin/GuardProfile.jsx";
 import SiteProfile from "./admin/SiteProfile.jsx";
 import AnnouncementBanner from "./AnnouncementBanner.jsx";
@@ -23,7 +24,7 @@ import { createRoot } from "react-dom/client";
 import {
   Shield, ShieldCheck, Menu, X, ArrowUpRight, ArrowRight, LockKeyhole,
   Globe, Code2, GraduationCap, UserRound, Bell, CalendarDays, Users,
-  FileText, Mail, Phone, MapPin, ChevronRight, CheckCircle2, LogOut, Plus, Trash2, Pencil, RefreshCw, AlertCircle, Building2, Moon, Sun
+  FileText, Mail, Phone, MapPin, ChevronRight, CheckCircle2, LogOut, Plus, Trash2, Pencil, RefreshCw, AlertCircle, Building2, Moon, Sun, Send
 } from "lucide-react";
 import "./styles.css";
 import "./admin/adminTheme.css";
@@ -34,7 +35,7 @@ const adminNavGroups = [
   { id: "workforce", label: "Workforce", items: [["guards", "Security Guards", Users, "guards"], ["supervisors", "Supervisors", UserRound, "supervisors"], ["fieldOfficers", "Field Officers", UserRound, "field_officers"]] },
   { id: "operations", label: "Operations", items: [["sites", "Sites", Building2, "sites"]] },
   { id: "finance", label: "Finance", items: [["advances", "Salary & Advances", FileText, "advances"]] },
-  { id: "content", label: "Content", items: [["services", "Services", Globe, "services"], ["events", "Events", CalendarDays, "events"], ["notifications", "Notifications", Bell, "notifications"], ["profileDocs", "Company Profile & Media", FileText, "profile_docs"], ["mediaCleanup", "Private Media Cleanup", Trash2]] },
+  { id: "content", label: "Content", items: [["services", "Services", Globe, "services"], ["events", "Events", CalendarDays, "events"], ["notifications", "Notifications", Bell, "notifications"], ["profileDocs", "Company Profile & Media", FileText, "profile_docs"], ["mediaCleanup", "Private Media Cleanup", Trash2], ["telegram", "Telegram Integration", Send]] },
   { id: "requests", label: "Requests", items: [["contactSubmissions", "Contact Enquiries", Mail, "contact_submissions"], ["jobApplications", "Job Applications", UserRound, "job_applications"], ["complaints", "Complaints", AlertCircle, "complaints"]] },
   { id: "history", label: "History", items: [["retainedHistory", "Retained History", FileText]] },
 ];
@@ -152,6 +153,7 @@ function App() {
   const adminTabsConfig = {
     retainedHistory: { title: "Retained operational history", description: "Read-only assignments, financial entries, audit records and integration delivery history." },
     mediaCleanup: { title: "Private media cleanup", description: "Review unreferenced private files before explicitly confirming physical removal." },
+    telegram: { title: "Telegram Integration", description: "Link the owner administrator, review bot activity, and configure approved employee, Site, and note aliases." },
     overview: { title: "Dashboard Overview", description: "Summary metrics of Golconda Security Services operations." },
     events: { title: "Manage Events", description: "Add, modify, or remove upcoming events and awareness programs." },
     notifications: { title: "Manage Notifications", description: "Publish announcements and safety updates." },
@@ -245,7 +247,7 @@ function App() {
 
   useEffect(() => {
     if (!adminMode) return;
-    if (["mediaCleanup","retainedHistory"].includes(adminTab)) return;
+    if (["mediaCleanup","retainedHistory","telegram"].includes(adminTab)) return;
     if (adminTab === "overview") loadDashboardMetrics();
     else if (adminTab === "advances") {
       Promise.all([loadAdminItems("guards"), loadAdminItems("supervisors"), loadAdminItems("fieldOfficers"), loadAdminItems("sites")]);
@@ -760,6 +762,7 @@ function App() {
 
           {adminTab === "retainedHistory" && <RetainedHistory/>}
           {adminTab === "mediaCleanup" && <MediaCleanup/>}
+          {adminTab === "telegram" && <TelegramIntegration/>}
           {adminTab === "guards" && <GuardManagement
             items={adminItems.guards}
             sites={adminItems.sites}
@@ -805,7 +808,7 @@ function App() {
             onMetricsRefresh={loadDashboardMetrics}
           />}
 
-          {! ["guards", "profileDocs", "sites", "supervisors", "fieldOfficers", "advances", "mediaCleanup", "retainedHistory"].includes(adminTab) && <>
+          {! ["guards", "profileDocs", "sites", "supervisors", "fieldOfficers", "advances", "mediaCleanup", "retainedHistory", "telegram"].includes(adminTab) && <>
           {adminTab !== "overview" && <RecordFilter value={recordFilter} onChange={setRecordFilter}/>}
           <div className="gss-admin-list-heading">
             <h3>{adminTab === "overview" ? "Quick Operational Actions" : "Records & Entries"}</h3>

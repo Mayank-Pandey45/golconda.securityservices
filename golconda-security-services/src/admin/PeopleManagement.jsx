@@ -2,11 +2,12 @@ import RecordActions, { RecordFilter } from "./RecordActions.jsx";
 import LifecycleDialog from "./LifecycleDialog.jsx";
 import { matchesRecordState } from "../../shared/recordLifecycle.js";
 import { queueOrphan } from "./recordClient.js";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDownToLine, Camera, Check, Pencil, Plus, RefreshCw, X } from "lucide-react";
 import { apiUrl, readApiResponse } from "../api.js";
 import { downloadFile } from "../guardSpreadsheet.js";
 import { supabase } from "../supabase.js";
+import EmployeeIdentityFields from "./EmployeeIdentityFields.jsx";
 import "./peopleManagement.css";
 
 const BUCKET = "employee-private";
@@ -73,6 +74,7 @@ export default function PeopleManagement({ employeeType, items = EMPTY_ROWS, sit
   const [otherPeople, setOtherPeople] = useState([]);
   const [signedPhotos, setSignedPhotos] = useState({});
   const [exitTarget, setExitTarget] = useState(null);
+  const identityRef = useRef(null);
 
   useEffect(() => {
     let active = true;
@@ -139,7 +141,7 @@ export default function PeopleManagement({ employeeType, items = EMPTY_ROWS, sit
     return matchesSearch && (!filters.status || person.status === filters.status);
   }), [records, filters, recordFilter, recordModule]);
 
-  function resetForm() { setForm(initialForm); setPhotoFile(null); setEditingId(null); }
+  function resetForm() { setForm(initialForm); setPhotoFile(null); setEditingId(null); identityRef.current?.reset(); }
 
   function editPerson(person) {
     const current = person.current_compensation || compensationByPerson.get(String(person.id));
@@ -163,6 +165,7 @@ export default function PeopleManagement({ employeeType, items = EMPTY_ROWS, sit
     event.preventDefault(); setBusy(true); setMessage("");
     let uploadedPath = "";
     let persisted = false;
+    let savedEmployeeId = null;
     try {
       let photoPath = form.photo_storage_path || null;
       if (photoFile) {
@@ -178,12 +181,15 @@ export default function PeopleManagement({ employeeType, items = EMPTY_ROWS, sit
       const person = { ...form, photo_storage_path: photoPath, gross_monthly_salary: form.gross_monthly_salary || null };
       const result = await postPeople({ action: "save", employee_type: employeeType, employee_id: editingId, person, site_ids: form.site_ids.map(Number), reporting_ids: form.reporting_ids.map(Number) });
       persisted = true;
+      savedEmployeeId = result.employee_id;
+      await identityRef.current?.save(savedEmployeeId);
       // Previous photos remain private and are queued by the database.
       resetForm(); await onRefresh(); await onMetricsRefresh();
       setMessage(`Employee profile saved (record ${result.employee_id}).`);
     } catch (error) {
       const orphanMessage = uploadedPath && !persisted ? await queueOrphan(BUCKET, uploadedPath) : "";
-      setMessage(error.message + " " + orphanMessage);
+      if (persisted && savedEmployeeId) setEditingId(savedEmployeeId);
+      setMessage(persisted ? `Employee profile saved, but identity changes were not confirmed: ${error.message}` : `${error.message} ${orphanMessage}`);
     } finally { setBusy(false); }
   }
 
@@ -212,6 +218,7 @@ export default function PeopleManagement({ employeeType, items = EMPTY_ROWS, sit
       <label>Date of birth (optional)<input type="date" value={form.date_of_birth} onChange={event => setForm({ ...form, date_of_birth: event.target.value })}/></label>
       <label className="full">Residential address (optional)<textarea rows="2" maxLength="1000" value={form.residential_address} onChange={event => setForm({ ...form, residential_address: event.target.value })}/></label>
       <label className="full people-photo-control">Private profile photo<input type="file" accept="image/jpeg,image/png,image/webp" onChange={event => setPhotoFile(event.target.files?.[0] || null)}/><small>{photoFile?.name || (form.photo_storage_path ? "A private photo is already saved." : "No photo stored.")} · JPEG, PNG, WebP · maximum 5 MB</small></label>
+      <EmployeeIdentityFields ref={identityRef} employeeType={employeeType} employeeId={editingId}/>
       <h4 className="people-section-heading">Compensation · INR</h4>
       <label>Gross monthly salary<input type="number" min="0" max="100000000" step="0.01" value={form.gross_monthly_salary} onChange={event => setForm({ ...form, gross_monthly_salary: event.target.value })}/></label>
       <label>Salary effective from<input type="date" value={form.salary_effective_from} onChange={event => setForm({ ...form, salary_effective_from: event.target.value })}/></label>
