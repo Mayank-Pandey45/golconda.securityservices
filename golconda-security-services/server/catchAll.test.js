@@ -70,11 +70,18 @@ test("real Express authorization is retained behind the consolidated handler", a
 test('explicit Vercel wildcard rewrite targets one stable function for every nested API path', async () => {
   const { readFile } = await import('node:fs/promises');
   const config = JSON.parse(await readFile(new URL('../vercel.json', import.meta.url), 'utf8'));
-  assert.deepEqual(config.rewrites[0], { source: '/api/:path*', destination: '/api/index?__route=:path*' });
+  assert.deepEqual(config.rewrites.slice(0, 3), [
+    { source: '/api/integrations/telegram/admin', destination: '/api/index?__route=integrations/telegram/admin' },
+    { source: '/api/integrations/telegram', destination: '/api/index?__route=integrations/telegram' },
+    { source: '/api/:path*', destination: '/api/index?__route=:path*' },
+  ]);
   const handler = createCatchAllHandler((req, res) => res.json({ url: req.url, query: req.query, body: req.body, authorization: req.headers.authorization }));
-  for (const path of ['operations/records', 'operations/guards', 'operations/sites', 'operations/people', 'operations/site-import', 'operations/advances', 'guards/import', 'integrations/telegram', 'contact', 'applications', 'complaints', 'health', 'profile', 'operations/payroll', 'integrations/sheets-sync']) {
+  for (const path of ['operations/records', 'operations/guards', 'operations/sites', 'operations/people', 'operations/site-import', 'operations/advances', 'guards/import', 'integrations/telegram', 'integrations/telegram/admin', 'contact', 'applications', 'complaints', 'health', 'profile', 'operations/payroll', 'integrations/sheets-sync']) {
     const isGet = ['health', 'profile', 'operations/payroll', 'integrations/sheets-sync'].includes(path);
-    for (const originalUrl of ['/api/' + path + '?site_id=2', '/api/index?__route=' + encodeURIComponent(path) + '&site_id=2']) {
+    const route = path === 'integrations/telegram' || path === 'integrations/telegram/admin'
+      ? config.rewrites.find(item => item.source === `/api/${path}`).destination
+      : '/api/index?__route=' + encodeURIComponent(path);
+    for (const originalUrl of ['/api/' + path + '?site_id=2', route + '&site_id=2']) {
       const req = { ...request(originalUrl, { action: 'save' }), method: isGet ? 'GET' : 'POST', query: { __route: path, site_id: '2' } };
       const res = response(); handler(req, res);
       assert.equal(res.statusCode, 200); assert.equal(res.body.url, '/api/' + path + '?site_id=2');
@@ -82,6 +89,41 @@ test('explicit Vercel wildcard rewrite targets one stable function for every nes
     }
   }
   const notFound = response(); handler(request('/api/unknown?__route=operations/guards'), notFound); assert.equal(notFound.statusCode, 404);
+});
+
+test('production Telegram webhook rewrite reaches the real handler and rejects an invalid secret', async () => {
+  const { createServer } = await import('node:http');
+  const { readFile } = await import('node:fs/promises');
+  const config = JSON.parse(await readFile(new URL('../vercel.json', import.meta.url), 'utf8'));
+  const rewrite = config.rewrites.find(item => item.source === '/api/integrations/telegram');
+  assert.deepEqual(rewrite, { source: '/api/integrations/telegram', destination: '/api/index?__route=integrations/telegram' });
+
+  let outboundTelegramRequests = 0;
+  const app = createApp({
+    database: {},
+    env: { TELEGRAM_BOT_TOKEN: 'synthetic-test-token', TELEGRAM_WEBHOOK_SECRET: 'synthetic-webhook-secret-long-enough-for-tests' },
+    fetchImpl: async () => { outboundTelegramRequests += 1; throw new Error('Unexpected Telegram API request'); },
+    staticFiles: false,
+    parseBody: false,
+    intakeLimiter: (_req, _res, next) => next(),
+  });
+  const handler = createCatchAllHandler(app);
+  const server = createServer((req, res) => {
+    const rewritten = new URL(rewrite.destination, 'http://local');
+    req.url = rewritten.pathname + rewritten.search;
+    req.query = Object.fromEntries(rewritten.searchParams.entries());
+    req.body = {};
+    handler(req, res);
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  try {
+    const result = await fetch(`http://127.0.0.1:${server.address().port}/api/integrations/telegram`, {
+      method: 'POST', headers: { 'content-type': 'application/json', 'x-telegram-bot-api-secret-token': 'invalid-synthetic-secret' }, body: '{}',
+    });
+    assert.equal(result.status, 401);
+    assert.deepEqual(await result.json(), { error: 'Webhook authentication failed.' });
+    assert.equal(outboundTelegramRequests, 0);
+  } finally { await new Promise(resolve => server.close(resolve)); }
 });
 
 test('rewritten guard, site, people and import routes retain authentication and admin authorization', async () => {

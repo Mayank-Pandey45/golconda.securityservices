@@ -9,6 +9,7 @@ const routeLimits = {
   "/api/profile": { methods: ["GET"], maxBodyBytes: 30 * 1024 },
   "/api/integrations/sheets-sync": { methods: ["GET"], maxBodyBytes: 30 * 1024 },
   "/api/integrations/telegram": { methods: ["POST"], maxBodyBytes: 32 * 1024 },
+  "/api/integrations/telegram/admin": { methods: ["POST"], maxBodyBytes: 30 * 1024 },
   "/api/guards/import": { methods: ["POST"], maxBodyBytes: 4 * 1024 * 1024 },
   "/api/operations/records": { methods: ["POST"], maxBodyBytes: 64 * 1024 },
   "/api/operations/sites": { methods: ["POST"], maxBodyBytes: 64 * 1024 },

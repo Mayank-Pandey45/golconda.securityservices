@@ -41,6 +41,14 @@
   ],
   "rewrites": [
     {
+      "source": "/api/integrations/telegram/admin",
+      "destination": "/api/index?__route=integrations/telegram/admin"
+    },
+    {
+      "source": "/api/integrations/telegram",
+      "destination": "/api/index?__route=integrations/telegram"
+    },
+    {
       "source": "/api/:path*",
       "destination": "/api/index?__route=:path*"
     },
