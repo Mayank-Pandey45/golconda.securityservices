@@ -8,8 +8,8 @@ const webhookSecret = "integration-webhook-secret-value-at-least-32-chars";
 const botEnv = { TELEGRAM_BOT_TOKEN: "test-bot-token", TELEGRAM_WEBHOOK_SECRET: webhookSecret };
 const now = new Date();
 
-function telegramUpdate({ senderId = 456, text = "1000Test Sentry at North Gate food cash", updateId = 77, chatType = "private" } = {}) {
-  return { update_id: updateId, message: { date: Math.floor(Date.now() / 1000) - 10, text, from: { id: senderId }, chat: { id: senderId, type: chatType } } };
+function telegramUpdate({ senderId = 456, text = "1000Test Sentry at North Gate food cash", updateId = 77, chatType = "private", date = Math.floor(Date.now() / 1000) - 10 } = {}) {
+  return { update_id: updateId, message: { date, text, from: { id: senderId }, chat: { id: senderId, type: chatType } } };
 }
 
 function callbackUpdate({ senderId = 456, data, updateId = 78 } = {}) {
@@ -29,7 +29,7 @@ function telegramDb({ linked = true, secondAdmin = false } = {}) {
     supervisor_site_assignments: [], field_officer_site_assignments: [],
     employee_compensation: [],
   };
-  const state = { tables, rpcCalls: [], nextAdvanceId: 900, queryCount: 0 };
+  const state = { tables, rpcCalls: [], nextAdvanceId: 900, queryCount: 0, queries: [] };
 
   function matches(row, filters) {
     return filters.every(([kind, key, value]) => {
@@ -64,6 +64,7 @@ function telegramDb({ linked = true, secondAdmin = false } = {}) {
     query.then = (resolve, reject) => execute().then(resolve, reject);
     async function execute() {
       state.queryCount += 1;
+      state.queries.push({ table, action: query.action });
       const rows = tables[table] || (tables[table] = []);
       const selected = rows.filter(row => matches(row, query.filters));
       if (query.action === "select") {
@@ -129,18 +130,25 @@ function telegramDb({ linked = true, secondAdmin = false } = {}) {
   };
 }
 
-function telegramFetch(requests = [], failMethod = "") {
+function telegramFetch(requests = [], failMethod = "", apiResult = { ok: true, result: {} }) {
   let failed = false;
   return async (url, options) => {
     const method = url.split("/").at(-1);
     requests.push({ method, body: JSON.parse(options.body) });
     if (method === failMethod && !failed) { failed = true; throw new Error("temporary Telegram transport failure"); }
-    return { ok: true, async json() { return { ok: true, result: {} }; } };
+    return { ok: true, status: 200, async json() { return apiResult; } };
   };
 }
 
-async function deliver(database, body, fetchImpl, secretToken = webhookSecret) {
-  return handleTelegramWebhook({ body, secretToken, database, env: botEnv, fetchImpl, now: new Date() });
+const silentLogger = { info() {}, warn() {}, error() {} };
+
+function captureLogger() {
+  const events = [];
+  return { events, info: value => events.push(value), warn: value => events.push(value), error: value => events.push(value) };
+}
+
+async function deliver(database, body, fetchImpl, secretToken = webhookSecret, options = {}) {
+  return handleTelegramWebhook({ body, secretToken, database, env: botEnv, fetchImpl, now: options.now || new Date(), logger: options.logger || silentLogger });
 }
 
 test("Telegram rejects invalid webhook tokens and acknowledges authenticated non-private updates", async () => {
@@ -156,13 +164,90 @@ test("Telegram rejects invalid webhook tokens and acknowledges authenticated non
 });
 
 test("An unlinked private /start receives linking instructions without admin lookup", async () => {
-  const database = telegramDb({ linked: false }); const requests = [];
-  const result = await deliver(database, telegramUpdate({ senderId: 789, text: "/start", updateId: 780 }), telegramFetch(requests));
+  const database = telegramDb({ linked: false }); const requests = []; const logger = captureLogger();
+  const now = new Date("2026-10-24T02:03:00.000Z");
+  const result = await deliver(database, telegramUpdate({ senderId: 789, text: "/start", updateId: 780, date: Math.floor(now.valueOf() / 1000) }), telegramFetch(requests), webhookSecret, { now, logger });
   assert.equal(result.status, 200);
   assert.ok(requests.some(item => item.method === "sendMessage" && /To link:/.test(item.body.text)));
   assert.equal(database.state.queryCount, 0);
   assert.equal(database.state.rpcCalls.length, 0);
   assert.equal(database.state.tables.telegram_pending_advances.length, 0);
+  assert.ok(logger.events.some(event => event.event === "telegram_webhook" && event.update_id === 780 && event.update_type === "message" && event.outcome === "start_help_sent"));
+  assert.ok(logger.events.some(event => event.event === "telegram_bot_api" && event.method === "sendMessage" && event.outcome === "success"));
+  const diagnostics = JSON.stringify(logger.events);
+  for (const privateValue of ["789", "/start", "test-bot-token", webhookSecret]) assert.ok(!diagnostics.includes(privateValue));
+});
+
+test("A linked /salary command replies from synthetic salary data without logging employee or amount", async () => {
+  const database = telegramDb(); const requests = []; const logger = captureLogger();
+  database.state.tables.guards[0] = { ...database.state.tables.guards[0], employee_code: "SYN-GRD-000002", full_name: "Synthetic Guard", salary_amount: "25000.00", salary_frequency: "monthly" };
+  const now = new Date("2026-10-24T02:03:00.000Z");
+  const update = telegramUpdate({ text: "/salary SYN-GRD-000002", updateId: 781, date: Math.floor(now.valueOf() / 1000) });
+  const result = await deliver(database, update, telegramFetch(requests), webhookSecret, { now, logger });
+  assert.equal(result.status, 200);
+  const reply = requests.find(request => request.method === "sendMessage")?.body?.text || "";
+  assert.match(reply, /configured monthly salary estimate/i);
+  assert.match(reply, /actual paid and pending amounts: unavailable/i);
+  assert.ok(logger.events.some(event => event.event === "telegram_webhook" && event.outcome === "salary_reply_sent"));
+  assert.ok(logger.events.some(event => event.event === "telegram_bot_api" && event.method === "sendMessage" && event.outcome === "success"));
+  const diagnostics = JSON.stringify(logger.events);
+  for (const privateValue of ["Synthetic Guard", "SYN-GRD-000002", "25000", "456", "test-bot-token", webhookSecret]) assert.ok(!diagnostics.includes(privateValue));
+  assert.equal(database.state.rpcCalls.length, 0);
+  assert.equal(database.state.tables.advances.length, 0);
+});
+
+test("An unlinked private /salary command replies with linking instructions and never looks up salary data", async () => {
+  const database = telegramDb({ linked: false }); const requests = []; const logger = captureLogger();
+  const now = new Date("2026-10-24T02:03:00.000Z");
+  const update = telegramUpdate({ senderId: 789, text: "/salary SYN-GRD-000002", updateId: 782, date: Math.floor(now.valueOf() / 1000) });
+  const result = await deliver(database, update, telegramFetch(requests), webhookSecret, { now, logger });
+  assert.equal(result.status, 200);
+  const reply = requests.find(request => request.method === "sendMessage")?.body?.text || "";
+  assert.match(reply, /not linked/i);
+  assert.match(reply, /\/start/);
+  assert.match(reply, /\/link CODE/);
+  assert.ok(!/salary|₹|\d{3,}/i.test(reply));
+  assert.deepEqual(database.state.queries.map(query => query.table), ["telegram_admin_links"]);
+  assert.ok(logger.events.some(event => event.event === "telegram_webhook" && event.outcome === "unlinked_salary_instructions_sent"));
+  assert.ok(logger.events.some(event => event.event === "telegram_bot_api" && event.method === "sendMessage" && event.outcome === "success"));
+  const diagnostics = JSON.stringify(logger.events);
+  for (const privateValue of ["789", "SYN-GRD-000002", "test-bot-token", webhookSecret]) assert.ok(!diagnostics.includes(privateValue));
+  assert.equal(database.state.rpcCalls.length, 0);
+});
+
+test("Old private messages are safely acknowledged without command execution", async () => {
+  const database = telegramDb(); const requests = []; const logger = captureLogger();
+  const now = new Date("2026-10-24T02:03:00.000Z");
+  const oldDate = Math.floor((now.valueOf() - 25 * 60 * 60 * 1000) / 1000);
+  const result = await deliver(database, telegramUpdate({ text: "/salary SYN-GRD-000002", updateId: 783, date: oldDate }), telegramFetch(requests), webhookSecret, { now, logger });
+  assert.equal(result.status, 200);
+  assert.deepEqual(result.body, { ok: true, ignored: true });
+  assert.equal(database.state.queryCount, 0);
+  assert.equal(database.state.rpcCalls.length, 0);
+  assert.equal(requests.length, 0);
+  assert.ok(logger.events.some(event => event.event === "telegram_webhook" && event.outcome === "stale_update_ignored"));
+});
+
+test("A Telegram HTTP 200 with Bot API ok=false fails visibly instead of claiming a reply", async () => {
+  const logger = captureLogger();
+  const result = await deliver(telegramDb({ linked: false }), telegramUpdate({ senderId: 789, text: "/start", updateId: 784 }), telegramFetch([], "", { ok: false, error_code: 403, description: "private response omitted" }), webhookSecret, { logger });
+  assert.equal(result.status, 503);
+  assert.ok(logger.events.some(event => event.event === "telegram_bot_api" && event.outcome === "failure" && event.http_status === 200 && event.telegram_error_code === 403));
+  assert.ok(logger.events.some(event => event.event === "telegram_webhook" && event.outcome === "handler_failed" && event.http_status === 503));
+  assert.ok(!JSON.stringify(logger.events).includes("private response omitted"));
+});
+
+test("Repeated linked updates report a duplicate reply failure for Telegram retry", async () => {
+  const database = telegramDb(); const update = telegramUpdate({ text: "/salary G-001", updateId: 785 });
+  const first = await deliver(database, update, telegramFetch([]));
+  assert.equal(first.status, 200);
+  const logger = captureLogger();
+  const replay = await deliver(database, update, telegramFetch([], "", { ok: false, error_code: 429 }), webhookSecret, { logger });
+  assert.equal(replay.status, 503);
+  assert.ok(logger.events.some(event => event.event === "telegram_bot_api" && event.method === "sendMessage" && event.outcome === "failure" && event.telegram_error_code === 429));
+  assert.equal(database.state.tables.telegram_update_receipts.length, 1);
+  assert.equal(database.state.tables.advances.length, 0);
+  assert.equal(database.state.rpcCalls.length, 0);
 });
 
 test("Unlinked private commands are acknowledged without executing protected handlers", async () => {

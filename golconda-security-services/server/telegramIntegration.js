@@ -19,6 +19,7 @@ const HELP = [
 
 const EMPLOYEE_TABLES = Object.freeze({ guard: "guards", supervisor: "supervisors", field_officer: "field_officers" });
 const ASSIGNMENT_TABLES = Object.freeze({ guard: "guard_site_assignments", supervisor: "supervisor_site_assignments", field_officer: "field_officer_site_assignments" });
+const MAX_TELEGRAM_MESSAGE_AGE_MS = 24 * 60 * 60 * 1000;
 
 function safeEqual(left, right) {
   const a = Buffer.from(String(left || ""), "utf8");
@@ -29,6 +30,50 @@ function safeEqual(left, right) {
 function sha256(value) { return createHash("sha256").update(String(value)).digest("hex"); }
 function isUuid(value) { return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(value || "")); }
 const nowIso = now => now.toISOString();
+
+function telegramDiagnostic(logger, level, fields) {
+  try {
+    const method = logger?.[level];
+    if (typeof method === "function") method.call(logger, { component: "telegram_webhook", ...fields });
+  } catch { /* Diagnostics must never change webhook behavior. */ }
+}
+
+function diagnosticTelegramFetch(fetchImpl, logger, updateId) {
+  return async (url, options) => {
+    // The URL contains the bot token; derive only the fixed Bot API method name.
+    const method = /\/([A-Za-z]+)$/.exec(String(url))?.[1] || "unknown";
+    try {
+      const response = await fetchImpl(url, options);
+      const status = Number.isSafeInteger(response?.status) ? response.status : null;
+      return {
+        ok: response?.ok === true,
+        status,
+        async json() {
+          let result = null;
+          try { result = await response.json(); } catch { /* Log malformed or unavailable Telegram responses as failures. */ }
+          const success = response?.ok === true && result?.ok === true;
+          telegramDiagnostic(logger, success ? "info" : "warn", {
+            event: "telegram_bot_api",
+            update_id: updateId,
+            method,
+            outcome: success ? "success" : "failure",
+            http_status: status,
+            ...(Number.isSafeInteger(result?.error_code) ? { telegram_error_code: result.error_code } : {}),
+          });
+          return result;
+        },
+      };
+    } catch {
+      telegramDiagnostic(logger, "warn", {
+        event: "telegram_bot_api",
+        update_id: updateId,
+        method,
+        outcome: "transport_error",
+      });
+      throw new Error("telegram_api_transport_failed");
+    }
+  };
+}
 
 async function telegramApi({ fetchImpl, botToken, method, payload }) {
   const response = await fetchImpl(`https://api.telegram.org/bot${botToken}/${method}`, {
@@ -465,90 +510,114 @@ async function handleReadCommand({ database, command, args, fetchImpl, botToken,
   return null;
 }
 
-export async function handleTelegramWebhook({ body, secretToken, database, env = process.env, fetchImpl = fetch, now = new Date() }) {
-  const botToken = String(env.TELEGRAM_BOT_TOKEN || "");
-  const expectedSecret = String(env.TELEGRAM_WEBHOOK_SECRET || "");
-  if (!database || !botToken || expectedSecret.length < 32) return { status: 503, body: { error: "Telegram integration is not configured." } };
-  if (!safeEqual(secretToken, expectedSecret)) return { status: 401, body: { error: "Webhook authentication failed." } };
-  const updateId = body?.update_id;
+export async function handleTelegramWebhook({ body, secretToken, database, env = process.env, fetchImpl = fetch, now = new Date(), logger = console }) {
+  const updateId = Number.isSafeInteger(body?.update_id) && body.update_id >= 0 ? body.update_id : null;
   const callback = body?.callback_query;
   const message = callback?.message || body?.message;
+  const updateType = callback ? "callback_query" : body?.message ? "message" : "unsupported";
+  const finish = (status, responseBody, outcome) => {
+    telegramDiagnostic(logger, status >= 500 ? "error" : "info", {
+      event: "telegram_webhook",
+      update_id: updateId,
+      update_type: updateType,
+      outcome,
+      http_status: status,
+    });
+    return { status, body: responseBody };
+  };
+  const botToken = String(env.TELEGRAM_BOT_TOKEN || "");
+  const expectedSecret = String(env.TELEGRAM_WEBHOOK_SECRET || "");
+  if (!database || !botToken || expectedSecret.length < 32) return finish(503, { error: "Telegram integration is not configured." }, "configuration_missing");
+  if (!safeEqual(secretToken, expectedSecret)) return finish(401, { error: "Webhook authentication failed." }, "authentication_rejected");
+  const telegramFetch = diagnosticTelegramFetch(fetchImpl, logger, updateId);
   const sender = callback?.from || message?.from;
   const senderId = String(sender?.id ?? "");
   if (!Number.isSafeInteger(updateId) || updateId < 0 || !/^\d{1,20}$/.test(senderId) || message?.chat?.type !== "private" || String(message?.chat?.id ?? "") !== senderId) {
     // The webhook secret authenticates Telegram. Unsupported or non-private updates
     // must be acknowledged so Telegram does not retry them indefinitely, but they
     // must never reach linking, command, or financial handlers.
-    return { status: 200, body: { ok: true, ignored: true } };
+    return finish(200, { ok: true, ignored: true }, "unsupported_or_non_private_ignored");
   }
   if (!callback && (!Number.isSafeInteger(message.date) || message.date <= 0 || message.date * 1000 > now.valueOf() + 5 * 60 * 1000)) {
-    return { status: 200, body: { ok: true, ignored: true } };
+    return finish(200, { ok: true, ignored: true }, "invalid_timestamp_ignored");
+  }
+  if (!callback && now.valueOf() - message.date * 1000 > MAX_TELEGRAM_MESSAGE_AGE_MS) {
+    return finish(200, { ok: true, ignored: true }, "stale_update_ignored");
   }
 
   let claimedReceipt = false;
   try {
     const text = String(message?.text || "").trim();
     const linkMatch = /^\/link(?:@[A-Za-z0-9_]+)?\s+([A-Za-z0-9_-]+)\s*$/i.exec(text);
-    if (!callback && linkMatch) {
-      await handleLinkCommand({ database, code: linkMatch[1], senderId, fetchImpl, botToken, chatId: message.chat.id, now });
-      return { status: 200, body: { ok: true } };
-    }
-    if (!callback && /^\/(?:start|help)(?:@[A-Za-z0-9_]+)?(?:\s|$)/i.test(text)) {
-      await reply({ fetchImpl, botToken, chatId: message.chat.id, text: `${HELP}\nTo link: sign in to the admin dashboard, generate a one-time code, then send /link CODE here.` });
-      return { status: 200, body: { ok: true } };
-    }
-
-    const actorId = await activeLink(database, senderId);
-    // A valid Telegram delivery from an unlinked account is not an HTTP failure.
-    // Acknowledge it without running commands or creating financial side effects.
-    if (!actorId) return { status: 200, body: { ok: true, ignored: true } };
-    const { error: receiptError } = await database.from("telegram_update_receipts").insert({ update_id: updateId, expires_at: new Date(now.valueOf() + 30 * 24 * 60 * 60 * 1000).toISOString() });
-    if (receiptError?.code === "23505") {
-      await reply({ fetchImpl, botToken, chatId: message.chat.id, text: "This Telegram update was already handled. Check the dashboard before retrying." }).catch(() => {});
-      return { status: 200, body: { ok: true, duplicate: true } };
-    }
-    if (receiptError) throw new Error("telegram_update_claim_failed");
-    claimedReceipt = true;
-    if (callback) return await handleCallback({ database, callback, senderId, actorId, now, env, fetchImpl, botToken });
-
     const commandMatch = /^\/([A-Za-z]+)(?:@[A-Za-z0-9_]+)?(?:\s+([\s\S]*))?$/i.exec(text);
     const command = commandMatch ? `/${commandMatch[1].toLowerCase()}` : "";
     const args = commandMatch?.[2] || "";
+    if (!callback && linkMatch) {
+      await handleLinkCommand({ database, code: linkMatch[1], senderId, fetchImpl: telegramFetch, botToken, chatId: message.chat.id, now });
+      return finish(200, { ok: true }, "link_command_replied");
+    }
+    if (!callback && /^\/(?:start|help)(?:@[A-Za-z0-9_]+)?(?:\s|$)/i.test(text)) {
+      await reply({ fetchImpl: telegramFetch, botToken, chatId: message.chat.id, text: `${HELP}\nTo link: sign in to the admin dashboard, generate a one-time code, then send /link CODE here.` });
+      return finish(200, { ok: true }, "start_help_sent");
+    }
+
+    const actorId = await activeLink(database, senderId);
+    if (!actorId) {
+      if (command === "/salary") {
+        await reply({ fetchImpl: telegramFetch, botToken, chatId: message.chat.id, text: "This Telegram account is not linked to the verified owner admin. Send /start for linking instructions, then generate a one-time code in the admin dashboard and send /link CODE here." });
+        return finish(200, { ok: true }, "unlinked_salary_instructions_sent");
+      }
+      // A valid Telegram delivery from an unlinked account is acknowledged without
+      // running protected commands or creating financial side effects.
+      return finish(200, { ok: true, ignored: true }, "unlinked_update_ignored");
+    }
+    const { error: receiptError } = await database.from("telegram_update_receipts").insert({ update_id: updateId, expires_at: new Date(now.valueOf() + 30 * 24 * 60 * 60 * 1000).toISOString() });
+    if (receiptError?.code === "23505") {
+      await reply({ fetchImpl: telegramFetch, botToken, chatId: message.chat.id, text: "This Telegram update was already handled. Check the dashboard before retrying." });
+      return finish(200, { ok: true, duplicate: true }, "duplicate_update_acknowledged");
+    }
+    if (receiptError) throw new Error("telegram_update_claim_failed");
+    claimedReceipt = true;
+    if (callback) {
+      const result = await handleCallback({ database, callback, senderId, actorId, now, env, fetchImpl: telegramFetch, botToken });
+      return finish(result.status, result.body, "callback_handled");
+    }
+
     if (command === "/unlink") {
       const { error } = await database.from("telegram_admin_links").update({ revoked_at: nowIso(now), revoked_by: actorId })
         .eq("admin_user_id", actorId).eq("telegram_user_id", senderId).is("revoked_at", null);
       if (error) throw new Error("telegram_unlink_failed");
       await safeEvent(database, { actor_id: actorId, telegram_user_id: senderId, event_type: "admin_unlinked", details: {} });
-      await reply({ fetchImpl, botToken, chatId: message.chat.id, text: "Telegram link revoked. Generate a new one-time code in the admin dashboard to link again." });
-      return { status: 200, body: { ok: true } };
+      await reply({ fetchImpl: telegramFetch, botToken, chatId: message.chat.id, text: "Telegram link revoked. Generate a new one-time code in the admin dashboard to link again." });
+      return finish(200, { ok: true }, "unlink_completed");
     }
     if (command === "/cancel") {
       const { data, error } = await database.from("telegram_pending_advances").update({ status: "cancelled", updated_at: nowIso(now) })
         .eq("telegram_user_id", senderId).eq("actor_id", actorId).eq("status", "awaiting_confirmation").gt("expires_at", nowIso(now)).select("id");
       if (error) throw new Error("telegram_cancel_failed");
       await database.from("telegram_wizard_sessions").delete().eq("telegram_user_id", senderId);
-      await reply({ fetchImpl, botToken, chatId: message.chat.id, text: data?.length ? "Pending advance previews cancelled. Nothing was saved." : "There are no pending advance previews." });
-      return { status: 200, body: { ok: true } };
+      await reply({ fetchImpl: telegramFetch, botToken, chatId: message.chat.id, text: data?.length ? "Pending advance previews cancelled. Nothing was saved." : "There are no pending advance previews." });
+      return finish(200, { ok: true }, "cancel_reply_sent");
     }
     if (command === "/newadvance") {
-      await startNewAdvanceWizard({ database, senderId, actorId, now, fetchImpl, botToken, chatId: message.chat.id });
-      return { status: 200, body: { ok: true } };
+      await startNewAdvanceWizard({ database, senderId, actorId, now, fetchImpl: telegramFetch, botToken, chatId: message.chat.id });
+      return finish(200, { ok: true }, "advance_wizard_started");
     }
     if (!command) {
-      const inWizard = await continueWizard({ database, senderId, actorId, text, updateId, now, env, fetchImpl, botToken, chatId: message.chat.id });
-      if (inWizard) return { status: 200, body: { ok: true } };
+      const inWizard = await continueWizard({ database, senderId, actorId, text, updateId, now, env, fetchImpl: telegramFetch, botToken, chatId: message.chat.id });
+      if (inWizard) return finish(200, { ok: true }, "wizard_message_handled");
     }
-    const readReply = command ? await handleReadCommand({ database, command, args, fetchImpl, botToken, chatId: message.chat.id }) : null;
-    if (readReply) return { status: 200, body: { ok: true } };
+    const readReply = command ? await handleReadCommand({ database, command, args, fetchImpl: telegramFetch, botToken, chatId: message.chat.id }) : null;
+    if (readReply) return finish(200, { ok: true }, command === "/salary" ? "salary_reply_sent" : "command_reply_sent");
     if (command && !["/advance"].includes(command)) {
-      await reply({ fetchImpl, botToken, chatId: message.chat.id, text: `Unknown command.\n${HELP}` });
-      return { status: 200, body: { ok: true } };
+      await reply({ fetchImpl: telegramFetch, botToken, chatId: message.chat.id, text: `Unknown command.\n${HELP}` });
+      return finish(200, { ok: true }, "unknown_command_reply_sent");
     }
     const entryText = command === "/advance" ? args : text;
-    await handleNaturalEntry({ database, text: entryText, senderId, actorId, updateId, now, fetchImpl, botToken, chatId: message.chat.id });
-    return { status: 200, body: { ok: true } };
+    await handleNaturalEntry({ database, text: entryText, senderId, actorId, updateId, now, fetchImpl: telegramFetch, botToken, chatId: message.chat.id });
+    return finish(200, { ok: true }, "advance_preview_handled");
   } catch {
     if (claimedReceipt) { try { await database.from("telegram_update_receipts").delete().eq("update_id", updateId); } catch { /* Keep the original safe webhook error. */ } }
-    return { status: 503, body: { error: "Telegram could not verify or save this request. No success was confirmed; retry safely or use the dashboard." } };
+    return finish(503, { error: "Telegram could not verify or save this request. No success was confirmed; retry safely or use the dashboard." }, "handler_failed");
   }
 }
