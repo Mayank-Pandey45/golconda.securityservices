@@ -38,7 +38,120 @@ function telegramDiagnostic(logger, level, fields) {
   } catch { /* Diagnostics must never change webhook behavior. */ }
 }
 
-function diagnosticTelegramFetch(fetchImpl, logger, updateId) {
+function safeFailureCode(value) {
+  if (Number.isSafeInteger(value) && value >= 0) return value;
+  const code = String(value || "");
+  return /^[A-Za-z0-9_-]{1,40}$/.test(code) ? code : null;
+}
+
+function sanitizedFailureDescription(dependency, code, description) {
+  const text = String(description || "").toLowerCase();
+  if (dependency === "application") return "internal_handler_error";
+  if (dependency === "telegram_bot_api") {
+    if (String(code) === "429" || /too many requests|retry after/.test(text)) return "rate_limited";
+    if (/timeout|timed out|aborted/.test(text)) return "request_timeout";
+    if (/fetch failed|network|socket|connect|econnreset|enotfound/.test(text)) return "network_transport_failure";
+    if (/blocked by the user/.test(text)) return "bot_blocked_by_user";
+    if (/chat not found/.test(text)) return "chat_not_found";
+    if (/can't initiate|cannot initiate/.test(text)) return "bot_cannot_initiate_chat";
+    if (/message is too long/.test(text)) return "message_too_long";
+    if (/forbidden|not enough rights|have no rights/.test(text) || String(code) === "403") return "permission_denied";
+    return "telegram_api_rejected";
+  }
+  if (String(code) === "42501") return "database_permission_denied";
+  if (String(code) === "23505") return "database_unique_conflict";
+  if (String(code) === "23503") return "database_foreign_key_conflict";
+  if (/timeout|timed out/.test(text)) return "database_timeout";
+  if (/fetch failed|network|socket|connect|econnreset|enotfound/.test(text)) return "database_network_failure";
+  if (String(code).startsWith("PGRST")) return "postgrest_error";
+  return "database_request_failed";
+}
+
+function dependencyFailure({ dependency, operation, target, httpStatus, errorCode, description }) {
+  const sanitizedDescription = sanitizedFailureDescription(dependency, errorCode, description);
+  return {
+    dependency,
+    operation,
+    ...(target ? { target } : {}),
+    http_status: Number.isSafeInteger(httpStatus) && httpStatus >= 100 && httpStatus <= 599 ? httpStatus : null,
+    error_code: safeFailureCode(errorCode),
+    category: sanitizedDescription,
+    sanitized_description: sanitizedDescription,
+  };
+}
+
+function observeDatabase(database, logger, updateId, failureState) {
+  const cache = new WeakMap();
+  const recordFailure = (error, metadata, thrown = false) => {
+    const failure = dependencyFailure({ dependency: "supabase", operation: metadata.operation, target: metadata.target, httpStatus: error?.status, errorCode: error?.code, description: error?.message });
+    failureState.lastFailure = failure;
+    telegramDiagnostic(logger, "error", { event: "telegram_dependency_failure", update_id: updateId, ...failure, outcome: thrown ? "request_rejected" : "request_error" });
+  };
+  const observeResult = (result, metadata) => {
+    if (result?.error && !(metadata.target === "telegram_update_receipts" && result.error.code === "23505")) recordFailure(result.error, metadata);
+    else failureState.lastFailure = null;
+    return result;
+  };
+
+  function wrapQuery(query, metadata) {
+    if (!query || (typeof query !== "object" && typeof query !== "function")) return query;
+    if (cache.has(query)) return cache.get(query);
+    let proxy;
+    proxy = new Proxy(query, {
+      get(target, property) {
+        if (property === "then" && typeof target.then === "function") {
+          return (resolve, reject) => {
+            let pending;
+            try {
+              pending = Reflect.apply(target.then, target, [
+                result => observeResult(result, metadata),
+                error => { recordFailure(error, metadata, true); throw error; },
+              ]);
+            } catch (error) {
+              recordFailure(error, metadata, true);
+              return Promise.reject(error).then(resolve, reject);
+            }
+            return Promise.resolve(pending).then(resolve, reject);
+          };
+        }
+        const value = Reflect.get(target, property, target);
+        if (typeof value !== "function") return value;
+        return (...args) => {
+          if (["select", "insert", "upsert", "update", "delete"].includes(property)) {
+            if (property !== "select" || metadata.operation === "query") metadata.operation = property;
+          }
+          let result;
+          try { result = Reflect.apply(value, target, args); }
+          catch (error) { recordFailure(error, metadata, true); throw error; }
+          return result === target ? proxy : wrapQuery(result, metadata);
+        };
+      },
+    });
+    cache.set(query, proxy);
+    return proxy;
+  }
+
+  return new Proxy(database, {
+    get(target, property) {
+      const value = Reflect.get(target, property, target);
+      if (property === "from" && typeof value === "function") {
+        return table => wrapQuery(Reflect.apply(value, target, [table]), {
+          operation: "query",
+          target: /^[a-z][a-z0-9_]{0,62}$/i.test(String(table)) ? String(table) : "unknown_table",
+        });
+      }
+      if (property === "rpc" && typeof value === "function") {
+        return (name, ...args) => wrapQuery(Reflect.apply(value, target, [name, ...args]), {
+          operation: "rpc",
+          target: /^[a-z][a-z0-9_]{0,62}$/i.test(String(name)) ? String(name) : "unknown_rpc",
+        });
+      }
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}
+
+function diagnosticTelegramFetch(fetchImpl, logger, updateId, failureState) {
   return async (url, options) => {
     // The URL contains the bot token; derive only the fixed Bot API method name.
     const method = /\/([A-Za-z]+)$/.exec(String(url))?.[1] || "unknown";
@@ -52,22 +165,31 @@ function diagnosticTelegramFetch(fetchImpl, logger, updateId) {
           let result = null;
           try { result = await response.json(); } catch { /* Log malformed or unavailable Telegram responses as failures. */ }
           const success = response?.ok === true && result?.ok === true;
+          const failure = success ? null : dependencyFailure({
+            dependency: "telegram_bot_api",
+            operation: method,
+            httpStatus: status,
+            errorCode: result?.error_code,
+            description: result?.description,
+          });
+          failureState.lastFailure = failure;
           telegramDiagnostic(logger, success ? "info" : "warn", {
-            event: "telegram_bot_api",
+            event: success ? "telegram_bot_api" : "telegram_dependency_failure",
             update_id: updateId,
-            method,
+            ...(success ? { method } : failure),
             outcome: success ? "success" : "failure",
-            http_status: status,
-            ...(Number.isSafeInteger(result?.error_code) ? { telegram_error_code: result.error_code } : {}),
+            ...(success ? { http_status: status } : {}),
           });
           return result;
         },
       };
-    } catch {
+    } catch (error) {
+      const failure = dependencyFailure({ dependency: "telegram_bot_api", operation: method, errorCode: error?.code, description: error?.message });
+      failureState.lastFailure = failure;
       telegramDiagnostic(logger, "warn", {
-        event: "telegram_bot_api",
+        event: "telegram_dependency_failure",
         update_id: updateId,
-        method,
+        ...failure,
         outcome: "transport_error",
       });
       throw new Error("telegram_api_transport_failed");
@@ -515,13 +637,22 @@ export async function handleTelegramWebhook({ body, secretToken, database, env =
   const callback = body?.callback_query;
   const message = callback?.message || body?.message;
   const updateType = callback ? "callback_query" : body?.message ? "message" : "unsupported";
-  const finish = (status, responseBody, outcome) => {
+  const finish = (status, responseBody, outcome, failure = null) => {
     telegramDiagnostic(logger, status >= 500 ? "error" : "info", {
       event: "telegram_webhook",
       update_id: updateId,
       update_type: updateType,
       outcome,
       http_status: status,
+      ...(failure ? {
+        failure_dependency: failure.dependency,
+        failure_operation: failure.operation,
+        ...(failure.target ? { failure_target: failure.target } : {}),
+        dependency_http_status: failure.http_status,
+        dependency_error_code: failure.error_code,
+        failure_category: failure.category,
+        sanitized_description: failure.sanitized_description,
+      } : {}),
     });
     return { status, body: responseBody };
   };
@@ -529,7 +660,9 @@ export async function handleTelegramWebhook({ body, secretToken, database, env =
   const expectedSecret = String(env.TELEGRAM_WEBHOOK_SECRET || "");
   if (!database || !botToken || expectedSecret.length < 32) return finish(503, { error: "Telegram integration is not configured." }, "configuration_missing");
   if (!safeEqual(secretToken, expectedSecret)) return finish(401, { error: "Webhook authentication failed." }, "authentication_rejected");
-  const telegramFetch = diagnosticTelegramFetch(fetchImpl, logger, updateId);
+  const failureState = { lastFailure: null };
+  database = observeDatabase(database, logger, updateId, failureState);
+  const telegramFetch = diagnosticTelegramFetch(fetchImpl, logger, updateId, failureState);
   const sender = callback?.from || message?.from;
   const senderId = String(sender?.id ?? "");
   if (!Number.isSafeInteger(updateId) || updateId < 0 || !/^\d{1,20}$/.test(senderId) || message?.chat?.type !== "private" || String(message?.chat?.id ?? "") !== senderId) {
@@ -616,8 +749,16 @@ export async function handleTelegramWebhook({ body, secretToken, database, env =
     const entryText = command === "/advance" ? args : text;
     await handleNaturalEntry({ database, text: entryText, senderId, actorId, updateId, now, fetchImpl: telegramFetch, botToken, chatId: message.chat.id });
     return finish(200, { ok: true }, "advance_preview_handled");
-  } catch {
+  } catch (error) {
+    const observedFailure = failureState.lastFailure;
     if (claimedReceipt) { try { await database.from("telegram_update_receipts").delete().eq("update_id", updateId); } catch { /* Keep the original safe webhook error. */ } }
-    return finish(503, { error: "Telegram could not verify or save this request. No success was confirmed; retry safely or use the dashboard." }, "handler_failed");
+    const internalCode = safeFailureCode(error?.message);
+    const failure = observedFailure || failureState.lastFailure || dependencyFailure({
+      dependency: "application",
+      operation: "handler",
+      errorCode: internalCode && /^telegram_[a-z0-9_]+$/i.test(internalCode) ? internalCode : error?.code,
+      description: error?.message,
+    });
+    return finish(503, { error: "Telegram could not verify or save this request. No success was confirmed; retry safely or use the dashboard." }, "handler_failed", failure);
   }
 }

@@ -230,11 +230,22 @@ test("Old private messages are safely acknowledged without command execution", a
 
 test("A Telegram HTTP 200 with Bot API ok=false fails visibly instead of claiming a reply", async () => {
   const logger = captureLogger();
-  const result = await deliver(telegramDb({ linked: false }), telegramUpdate({ senderId: 789, text: "/start", updateId: 784 }), telegramFetch([], "", { ok: false, error_code: 403, description: "private response omitted" }), webhookSecret, { logger });
+  const result = await deliver(telegramDb({ linked: false }), telegramUpdate({ senderId: 789, text: "/start", updateId: 784 }), telegramFetch([], "", { ok: false, error_code: 403, description: "Forbidden: bot was blocked by the user" }), webhookSecret, { logger });
   assert.equal(result.status, 503);
-  assert.ok(logger.events.some(event => event.event === "telegram_bot_api" && event.outcome === "failure" && event.http_status === 200 && event.telegram_error_code === 403));
-  assert.ok(logger.events.some(event => event.event === "telegram_webhook" && event.outcome === "handler_failed" && event.http_status === 503));
-  assert.ok(!JSON.stringify(logger.events).includes("private response omitted"));
+  assert.ok(logger.events.some(event => event.event === "telegram_dependency_failure" && event.dependency === "telegram_bot_api" && event.operation === "sendMessage" && event.http_status === 200 && event.error_code === 403 && event.sanitized_description === "bot_blocked_by_user"));
+  assert.ok(logger.events.some(event => event.event === "telegram_webhook" && event.outcome === "handler_failed" && event.http_status === 503 && event.failure_dependency === "telegram_bot_api" && event.dependency_http_status === 200 && event.dependency_error_code === 403));
+  assert.ok(!JSON.stringify(logger.events).includes("Forbidden: bot was blocked by the user"));
+});
+
+test("Telegram transport failures identify the dependency and redact exception text", async () => {
+  const logger = captureLogger();
+  const fetchImpl = async () => { throw Object.assign(new Error("fetch failed for chat 987654321 and private message text"), { code: "ECONNRESET" }); };
+  const result = await deliver(telegramDb({ linked: false }), telegramUpdate({ senderId: 789, text: "/start", updateId: 786 }), fetchImpl, webhookSecret, { logger });
+  assert.equal(result.status, 503);
+  assert.ok(logger.events.some(event => event.event === "telegram_dependency_failure" && event.dependency === "telegram_bot_api" && event.operation === "sendMessage" && event.outcome === "transport_error" && event.http_status === null && event.error_code === "ECONNRESET" && event.sanitized_description === "network_transport_failure"));
+  assert.ok(logger.events.some(event => event.event === "telegram_webhook" && event.outcome === "handler_failed" && event.failure_dependency === "telegram_bot_api" && event.failure_category === "network_transport_failure"));
+  const diagnostics = JSON.stringify(logger.events);
+  for (const privateValue of ["987654321", "private message text", "789", "test-bot-token", webhookSecret]) assert.ok(!diagnostics.includes(privateValue));
 });
 
 test("Repeated linked updates report a duplicate reply failure for Telegram retry", async () => {
@@ -244,7 +255,8 @@ test("Repeated linked updates report a duplicate reply failure for Telegram retr
   const logger = captureLogger();
   const replay = await deliver(database, update, telegramFetch([], "", { ok: false, error_code: 429 }), webhookSecret, { logger });
   assert.equal(replay.status, 503);
-  assert.ok(logger.events.some(event => event.event === "telegram_bot_api" && event.method === "sendMessage" && event.outcome === "failure" && event.telegram_error_code === 429));
+  assert.ok(logger.events.some(event => event.event === "telegram_dependency_failure" && event.dependency === "telegram_bot_api" && event.operation === "sendMessage" && event.outcome === "failure" && event.error_code === 429 && event.sanitized_description === "rate_limited"));
+  assert.ok(logger.events.some(event => event.event === "telegram_webhook" && event.outcome === "handler_failed" && event.failure_dependency === "telegram_bot_api" && event.failure_category === "rate_limited"));
   assert.equal(database.state.tables.telegram_update_receipts.length, 1);
   assert.equal(database.state.tables.advances.length, 0);
   assert.equal(database.state.rpcCalls.length, 0);
@@ -263,18 +275,22 @@ test("Unlinked private commands are acknowledged without executing protected han
   assert.equal(database.state.rpcCalls.length, 0);
 });
 
-test("A Supabase link lookup error remains retryable and is not mislabeled as an authorization 403", async () => {
+test("A Supabase link lookup error remains retryable and is identified as a database failure", async () => {
   const database = telegramDb();
+  const logger = captureLogger();
   const originalFrom = database.from;
   database.from = table => {
     if (table !== "telegram_admin_links") return originalFrom(table);
-    const query = { select() { return query; }, eq() { return query; }, is() { return query; }, async maybeSingle() { return { data: null, error: new Error("lookup unavailable") }; } };
+    const query = { select() { return query; }, eq() { return query; }, is() { return query; }, async maybeSingle() { return { data: null, error: Object.assign(new Error("synthetic lookup failure"), { code: "42501", status: 403 }) }; } };
     return query;
   };
-  const result = await deliver(database, telegramUpdate({ senderId: 789, text: "/dashboard", updateId: 783 }), telegramFetch([]));
+  const result = await deliver(database, telegramUpdate({ senderId: 789, text: "/dashboard", updateId: 783 }), telegramFetch([]), webhookSecret, { logger });
   assert.equal(result.status, 503);
   assert.equal(database.state.rpcCalls.length, 0);
   assert.equal(database.state.tables.telegram_pending_advances.length, 0);
+  assert.ok(logger.events.some(event => event.event === "telegram_dependency_failure" && event.dependency === "supabase" && event.operation === "select" && event.target === "telegram_admin_links" && event.http_status === 403 && event.error_code === "42501" && event.sanitized_description === "database_permission_denied"));
+  assert.ok(logger.events.some(event => event.event === "telegram_webhook" && event.outcome === "handler_failed" && event.failure_dependency === "supabase" && event.failure_target === "telegram_admin_links" && event.dependency_error_code === "42501"));
+  assert.ok(!JSON.stringify(logger.events).includes("synthetic lookup failure"));
 });
 
 test("Unlinked callback queries and repeated deliveries are acknowledged without side effects", async () => {
