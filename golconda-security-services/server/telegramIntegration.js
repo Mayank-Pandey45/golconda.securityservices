@@ -270,14 +270,30 @@ async function handleLinkCommand({ database, code, senderId, fetchImpl, botToken
 }
 
 async function loadDirectory(database) {
-  const employeeResults = await Promise.all(Object.entries(EMPLOYEE_TABLES).map(async ([employeeType, table]) => {
-    const result = await database.from(table).select("id,employee_code,full_name,status,designation,salary_amount,salary_frequency")
-      .eq("status", "active").limit(1000);
-    return { employeeType, ...result };
-  }));
-  const siteResult = await database.from("sites").select("id,title,site_code,status").eq("status", "active").limit(1000);
-  const aliasResult = await database.from("telegram_aliases").select("id,alias,entity_type,guard_id,supervisor_id,field_officer_id,site_id,replacement").limit(5000);
-  if (employeeResults.some(result => result.error) || siteResult.error || aliasResult.error) throw new Error("telegram_directory_lookup_failed");
+  const runLookup = async (target, lookup) => {
+    try { return { target, ...(await lookup()) }; }
+    catch (error) { return { target, error }; }
+  };
+  const employeeLookups = Object.entries(EMPLOYEE_TABLES).map(([employeeType, table]) =>
+    runLookup(table, async () => ({ employeeType, ...await database.from(table).select("id,employee_code,full_name,status")
+      .eq("status", "active").limit(1000) })));
+  const [employeeResults, siteResult, aliasResult] = await Promise.all([
+    Promise.all(employeeLookups),
+    runLookup("sites", () => database.from("sites").select("id,title,site_code,status").eq("status", "active").limit(1000)),
+    runLookup("telegram_aliases", () => database.from("telegram_aliases").select("id,alias,entity_type,guard_id,supervisor_id,field_officer_id,site_id,replacement").limit(5000)),
+  ]);
+  const failedLookup = employeeResults.find(result => result.error)
+    ?? (siteResult.error ? siteResult : null)
+    ?? (aliasResult.error ? aliasResult : null);
+  if (failedLookup) {
+    const failure = dependencyFailure({
+      dependency: "supabase", operation: "select", target: failedLookup.target,
+      httpStatus: failedLookup.error?.status, errorCode: failedLookup.error?.code, description: failedLookup.error?.message,
+    });
+    const error = new Error("telegram_directory_lookup_failed");
+    Object.defineProperty(error, "telegramFailure", { value: failure });
+    throw error;
+  }
   const employees = employeeResults.flatMap(result => (result.data || []).map(row => ({ ...row, employee_type: result.employeeType })));
   return { employees, sites: siteResult.data || [], aliases: aliasResult.data || [] };
 }
@@ -601,20 +617,27 @@ async function handleReadCommand({ database, command, args, fetchImpl, botToken,
   if (command === "/salary") {
     const code = args.trim().toUpperCase();
     if (!code) return reply({ fetchImpl, botToken, chatId, text: "Use /salary followed by an exact employee code." });
-    const matches = await Promise.all(Object.entries(EMPLOYEE_TABLES).map(async ([type, table]) => ({ type, ...(await database.from(table).select("id,full_name,employee_code,salary_amount,salary_frequency,status").eq("employee_code", code).maybeSingle()) })));
+    const matches = await Promise.all(Object.entries(EMPLOYEE_TABLES).map(async ([type, table]) => {
+      const columns = type === "guard" ? "id,full_name,employee_code,salary_amount,salary_frequency,status" : "id,full_name,employee_code,status";
+      return { type, ...(await database.from(table).select(columns).eq("employee_code", code).maybeSingle()) };
+    }));
     if (matches.some(result => result.error)) throw new Error("telegram_salary_lookup_failed");
-    const person = matches.find(result => result.data)?.data;
+    const matched = matches.find(result => result.data);
+    const person = matched?.data;
     if (!person) return reply({ fetchImpl, botToken, chatId, text: "No employee matches that code." });
-    let salary = person.salary_amount;
-    if (salary == null && person.employee_type !== "guard") {
-      const employeeType = matches.find(result => result.data)?.type;
-      const { data, error } = await database.from("employee_compensation").select("gross_monthly_salary,salary_frequency,effective_from")
+    const employeeType = matched.type;
+    let salary = employeeType === "guard" ? person.salary_amount : null;
+    let salaryFrequency = employeeType === "guard" ? person.salary_frequency : "monthly";
+    if (salary == null) {
+      const { data, error } = await database.from("employee_compensation").select("gross_monthly_salary,effective_from")
         .eq("employee_type", employeeType).eq(`${employeeType}_id`, person.id).order("effective_from", { ascending: false }).limit(1).maybeSingle();
       if (error) throw new Error("telegram_salary_lookup_failed");
       salary = data?.gross_monthly_salary;
+      if (salary != null) salaryFrequency = "monthly";
     }
     if (salary == null) return reply({ fetchImpl, botToken, chatId, text: `${person.full_name}: configured salary is unavailable. Actual paid and pending amounts are not available in the ledger.` });
-    return reply({ fetchImpl, botToken, chatId, text: `${person.full_name} (${person.employee_code})\nConfigured monthly salary estimate: ${formatMoney(salary)}\nActual paid and pending amounts: unavailable without a salary payment ledger.` });
+    const frequencyLabel = salaryFrequency === "daily" ? "daily" : salaryFrequency === "monthly" ? "monthly" : "with no recorded frequency";
+    return reply({ fetchImpl, botToken, chatId, text: `${person.full_name} (${person.employee_code})\nConfigured ${frequencyLabel} salary estimate: ${formatMoney(salary)}\nActual paid and pending amounts: unavailable without a salary payment ledger.` });
   }
   if (command === "/report") {
     const now = new Date();
@@ -696,12 +719,14 @@ export async function handleTelegramWebhook({ body, secretToken, database, env =
 
     const actorId = await activeLink(database, senderId);
     if (!actorId) {
-      if (command === "/salary") {
-        await reply({ fetchImpl: telegramFetch, botToken, chatId: message.chat.id, text: "This Telegram account is not linked to the verified owner admin. Send /start for linking instructions, then generate a one-time code in the admin dashboard and send /link CODE here." });
-        return finish(200, { ok: true }, "unlinked_salary_instructions_sent");
+      const supported = new Set(["/link", "/salary", "/dashboard", "/guards", "/sites", "/search", "/report", "/newadvance", "/advance"]);
+      if (text && (supported.has(command) || !command)) {
+        await reply({ fetchImpl: telegramFetch, botToken, chatId: message.chat.id,
+          text: "This Telegram account is not linked to the verified owner admin. Send /start for linking instructions, then generate a one-time code in the admin dashboard and send /link CODE here. No command was run." });
+        return finish(200, { ok: true }, "unlinked_linking_instructions_sent");
       }
-      // A valid Telegram delivery from an unlinked account is acknowledged without
-      // running protected commands or creating financial side effects.
+      // Unsupported updates are acknowledged without running protected commands
+      // or creating financial side effects.
       return finish(200, { ok: true, ignored: true }, "unlinked_update_ignored");
     }
     const { error: receiptError } = await database.from("telegram_update_receipts").insert({ update_id: updateId, expires_at: new Date(now.valueOf() + 30 * 24 * 60 * 60 * 1000).toISOString() });
@@ -753,7 +778,7 @@ export async function handleTelegramWebhook({ body, secretToken, database, env =
     const observedFailure = failureState.lastFailure;
     if (claimedReceipt) { try { await database.from("telegram_update_receipts").delete().eq("update_id", updateId); } catch { /* Keep the original safe webhook error. */ } }
     const internalCode = safeFailureCode(error?.message);
-    const failure = observedFailure || failureState.lastFailure || dependencyFailure({
+    const failure = error?.telegramFailure || observedFailure || failureState.lastFailure || dependencyFailure({
       dependency: "application",
       operation: "handler",
       errorCode: internalCode && /^telegram_[a-z0-9_]+$/i.test(internalCode) ? internalCode : error?.code,

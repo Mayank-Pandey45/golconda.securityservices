@@ -16,7 +16,7 @@ function callbackUpdate({ senderId = 456, data, updateId = 78 } = {}) {
   return { update_id: updateId, callback_query: { id: `callback-${updateId}`, from: { id: senderId }, message: { date: Math.floor(Date.now() / 1000) - 10, chat: { id: senderId, type: "private" } }, data } };
 }
 
-function telegramDb({ linked = true, secondAdmin = false } = {}) {
+function telegramDb({ linked = true, secondAdmin = false, queryErrors = {} } = {}) {
   const tables = {
     admin_users: [{ user_id: ownerId }, ...(secondAdmin ? [{ user_id: "22345678-1234-1234-1234-123456789012" }] : [])],
     telegram_admin_links: linked ? [{ admin_user_id: ownerId, telegram_user_id: "456", linked_at: now.toISOString(), revoked_at: null }] : [],
@@ -29,7 +29,7 @@ function telegramDb({ linked = true, secondAdmin = false } = {}) {
     supervisor_site_assignments: [], field_officer_site_assignments: [],
     employee_compensation: [],
   };
-  const state = { tables, rpcCalls: [], nextAdvanceId: 900, queryCount: 0, queries: [] };
+  const state = { tables, rpcCalls: [], nextAdvanceId: 900, queryCount: 0, queries: [], queryErrors };
 
   function matches(row, filters) {
     return filters.every(([kind, key, value]) => {
@@ -47,8 +47,8 @@ function telegramDb({ linked = true, secondAdmin = false } = {}) {
   }
 
   function from(table) {
-    const query = { action: "select", filters: [], returnRows: false, options: {} };
-    query.select = (_columns, options = {}) => { query.options = options || {}; query.returnRows = true; return query; };
+    const query = { action: "select", filters: [], returnRows: false, options: {}, selectedColumns: "" };
+    query.select = (columns, options = {}) => { query.selectedColumns = String(columns || ""); query.options = options || {}; query.returnRows = true; return query; };
     query.eq = (key, value) => { query.filters.push(["eq", key, value]); return query; };
     query.is = (key, value) => { query.filters.push(["is", key, value]); return query; };
     query.gt = (key, value) => { query.filters.push(["gt", key, value]); return query; };
@@ -64,10 +64,18 @@ function telegramDb({ linked = true, secondAdmin = false } = {}) {
     query.then = (resolve, reject) => execute().then(resolve, reject);
     async function execute() {
       state.queryCount += 1;
-      state.queries.push({ table, action: query.action });
+      state.queries.push({ table, action: query.action, columns: query.selectedColumns });
       const rows = tables[table] || (tables[table] = []);
       const selected = rows.filter(row => matches(row, query.filters));
       if (query.action === "select") {
+        if (state.queryErrors[table]) return { data: null, error: state.queryErrors[table] };
+        // Match the live Supabase schema: legacy salary fields are only on guards,
+        // and employee_compensation has gross_monthly_salary but no salary_frequency.
+        const unavailable = table === "supervisors" || table === "field_officers"
+          ? new Set(["salary_amount", "salary_frequency"])
+          : table === "employee_compensation" ? new Set(["salary_frequency"]) : new Set();
+        const missing = query.selectedColumns.split(",").map(value => value.trim()).filter(column => unavailable.has(column));
+        if (missing.length) return { data: null, error: Object.assign(new Error("requested column is absent from the production schema cache"), { code: "PGRST204", status: 400 }) };
         if (query.options.head) return { data: null, count: selected.length, error: null };
         const data = query.take ? selected.slice(0, query.take) : selected;
         return { data: query.options.count ? data : data, count: query.options.count ? selected.length : undefined, error: null };
@@ -196,6 +204,23 @@ test("A linked /salary command replies from synthetic salary data without loggin
   assert.equal(database.state.tables.advances.length, 0);
 });
 
+test("A linked supervisor /salary lookup uses the compensation ledger schema", async () => {
+  const database = telegramDb(); const requests = [];
+  database.state.tables.supervisors.push({ id: 12, employee_code: "SYN-SUP-000012", full_name: "Synthetic Supervisor", status: "active" });
+  database.state.tables.employee_compensation.push({ employee_type: "supervisor", supervisor_id: 12, gross_monthly_salary: "32000.00", effective_from: "2026-10-01" });
+  const now = new Date("2026-10-24T02:03:00.000Z");
+  const update = telegramUpdate({ text: "/salary SYN-SUP-000012", updateId: 787, date: Math.floor(now.valueOf() / 1000) });
+  const result = await deliver(database, update, telegramFetch(requests), webhookSecret, { now });
+  assert.equal(result.status, 200);
+  const reply = requests.find(request => request.method === "sendMessage")?.body?.text || "";
+  assert.match(reply, /configured monthly salary estimate/i);
+  assert.match(reply, /₹32,000/);
+  assert.ok(!database.state.queries.some(query => query.table === "supervisors" && /salary_amount|salary_frequency/.test(query.columns)));
+  assert.ok(!database.state.queries.some(query => query.table === "employee_compensation" && /salary_frequency/.test(query.columns)));
+  assert.equal(database.state.rpcCalls.length, 0);
+  assert.equal(database.state.tables.advances.length, 0);
+});
+
 test("An unlinked private /salary command replies with linking instructions and never looks up salary data", async () => {
   const database = telegramDb({ linked: false }); const requests = []; const logger = captureLogger();
   const now = new Date("2026-10-24T02:03:00.000Z");
@@ -208,7 +233,7 @@ test("An unlinked private /salary command replies with linking instructions and 
   assert.match(reply, /\/link CODE/);
   assert.ok(!/salary|₹|\d{3,}/i.test(reply));
   assert.deepEqual(database.state.queries.map(query => query.table), ["telegram_admin_links"]);
-  assert.ok(logger.events.some(event => event.event === "telegram_webhook" && event.outcome === "unlinked_salary_instructions_sent"));
+  assert.ok(logger.events.some(event => event.event === "telegram_webhook" && event.outcome === "unlinked_linking_instructions_sent"));
   assert.ok(logger.events.some(event => event.event === "telegram_bot_api" && event.method === "sendMessage" && event.outcome === "success"));
   const diagnostics = JSON.stringify(logger.events);
   for (const privateValue of ["789", "SYN-GRD-000002", "test-bot-token", webhookSecret]) assert.ok(!diagnostics.includes(privateValue));
@@ -262,15 +287,28 @@ test("Repeated linked updates report a duplicate reply failure for Telegram retr
   assert.equal(database.state.rpcCalls.length, 0);
 });
 
-test("Unlinked private commands are acknowledged without executing protected handlers", async () => {
+test("Unlinked private supported commands receive linking instructions without protected execution", async () => {
   const database = telegramDb({ linked: false }); const requests = [];
   const result = await deliver(database, telegramUpdate({ senderId: 789, text: "/newadvance", updateId: 781 }), telegramFetch(requests));
   assert.equal(result.status, 200);
-  assert.deepEqual(result.body, { ok: true, ignored: true });
+  assert.deepEqual(result.body, { ok: true });
   assert.equal(database.state.queryCount, 1); // Only the active Telegram-link lookup.
-  assert.equal(requests.length, 0);
+  assert.match(requests[0]?.body?.text || "", /not linked/i);
+  assert.match(requests[0]?.body?.text || "", /\/link CODE/);
+  assert.ok(!/salary|₹|\d{3,}/i.test(requests[0]?.body?.text || ""));
   assert.equal(database.state.tables.telegram_update_receipts.length, 0);
   assert.equal(database.state.tables.telegram_wizard_sessions.length, 0);
+  assert.equal(database.state.tables.telegram_pending_advances.length, 0);
+  assert.equal(database.state.rpcCalls.length, 0);
+});
+
+test("Unlinked natural-language advance input receives linking instructions and is never looked up", async () => {
+  const database = telegramDb({ linked: false }); const requests = [];
+  const result = await deliver(database, telegramUpdate({ senderId: 789, text: "Srikant 200 Maharaja Food", updateId: 788 }), telegramFetch(requests));
+  assert.equal(result.status, 200);
+  assert.deepEqual(database.state.queries.map(query => query.table), ["telegram_admin_links"]);
+  assert.match(requests[0]?.body?.text || "", /not linked/i);
+  assert.match(requests[0]?.body?.text || "", /\/start/);
   assert.equal(database.state.tables.telegram_pending_advances.length, 0);
   assert.equal(database.state.rpcCalls.length, 0);
 });
@@ -340,6 +378,54 @@ test("Plain mixed-language advance input creates an unsaved preview with explici
   assert.ok(callbacks.includes(`edit:date:${database.state.tables.telegram_pending_advances[0].id}`));
 });
 
+test("Linked natural-language lookup works against the live employee/site schema and multi-word Site names", async () => {
+  const database = telegramDb(); const requests = [];
+  database.state.tables.guards[0] = { id: 88, employee_code: "SYN-GRD-000088", full_name: "Srikant Sharma", status: "active", designation: "Security Guard" };
+  database.state.tables.sites[0] = { id: 44, title: "Maharaja Food", site_code: "MFC-44", status: "active" };
+  database.state.tables.guard_site_assignments[0] = { id: 9, guard_id: 88, site_id: 44, valid_from: "2026-10-01", valid_to: null };
+  const result = await deliver(database, telegramUpdate({ text: "srikant 200 maharaja food", updateId: 789 }), telegramFetch(requests));
+  assert.equal(result.status, 200);
+  assert.equal(database.state.tables.telegram_pending_advances.length, 1);
+  const pending = database.state.tables.telegram_pending_advances[0];
+  assert.equal(pending.guard_id, 88);
+  assert.equal(pending.site_id, 44);
+  assert.equal(pending.amount, "200.00");
+  assert.equal(database.state.rpcCalls.length, 0);
+  assert.match(requests.find(item => item.method === "sendMessage")?.body?.text || "", /Maharaja Food/);
+  assert.ok(!database.state.queries.some(query => ["supervisors", "field_officers"].includes(query.table) && /salary_amount|salary_frequency/.test(query.columns)));
+});
+
+test("Directory lookup errors stay retryable and report the exact failed dependency target", async () => {
+  const error = Object.assign(new Error("synthetic PostgREST schema cache failure"), { code: "PGRST204", status: 400 });
+  const database = telegramDb({ queryErrors: { sites: error } }); const logger = captureLogger();
+  const result = await deliver(database, telegramUpdate({ text: "Srikant 200 Maharaja Food", updateId: 790 }), telegramFetch([]), webhookSecret, { logger });
+  assert.equal(result.status, 503);
+  assert.equal(result.body.error, "Telegram could not verify or save this request. No success was confirmed; retry safely or use the dashboard.");
+  assert.ok(logger.events.some(event => event.event === "telegram_webhook" && event.outcome === "handler_failed" && event.http_status === 503 && event.failure_dependency === "supabase" && event.failure_operation === "select" && event.failure_target === "sites" && event.dependency_http_status === 400 && event.dependency_error_code === "PGRST204"));
+  assert.equal(database.state.tables.telegram_pending_advances.length, 0);
+  assert.equal(database.state.rpcCalls.length, 0);
+  assert.ok(!JSON.stringify(logger.events).includes("synthetic PostgREST schema cache failure"));
+});
+
+test("Unknown employees, unknown sites and ambiguous employee/site matches never stage an advance", async () => {
+  const database = telegramDb(); const requests = []; const fetchImpl = telegramFetch(requests);
+  await deliver(database, telegramUpdate({ text: "200 No Such Employee North Gate", updateId: 791 }), fetchImpl);
+  await deliver(database, telegramUpdate({ text: "200 Test Sentry No Such Site", updateId: 792 }), fetchImpl);
+  database.state.tables.guards.push({ id: 9, employee_code: "G-002", full_name: "Test Sentry", status: "active" });
+  await deliver(database, telegramUpdate({ text: "200 Test Sentry North Gate", updateId: 793 }), fetchImpl);
+  database.state.tables.guards.pop();
+  database.state.tables.sites.push({ id: 5, title: "North Gate", site_code: "NG-02", status: "active" });
+  await deliver(database, telegramUpdate({ text: "200 Test Sentry North Gate", updateId: 794 }), fetchImpl);
+  const replies = requests.filter(item => item.method === "sendMessage").map(item => item.body.text);
+  assert.ok(replies.some(text => /could not match an active employee/i.test(text)));
+  assert.ok(replies.some(text => /could not match an active site/i.test(text)));
+  assert.ok(replies.some(text => /more than one employee/i.test(text)));
+  assert.ok(replies.some(text => /more than one site/i.test(text)));
+  assert.equal(database.state.tables.telegram_pending_advances.length, 0);
+  assert.equal(database.state.rpcCalls.length, 0);
+  assert.equal(database.state.tables.advances.length, 0);
+});
+
 test("Confirmation rechecks the linked owner and records exactly once through record_advance", async () => {
   const database = telegramDb(); const requests = []; const fetchImpl = telegramFetch(requests);
   await deliver(database, telegramUpdate(), fetchImpl);
@@ -397,7 +483,7 @@ test("One-time hashed account linking and /unlink work only for the single verif
   assert.ok(database.state.tables.telegram_admin_links[0].revoked_at);
   const after = await deliver(database, telegramUpdate({ senderId: 789, text: "/dashboard", updateId: 103 }), fetchImpl);
   assert.equal(after.status, 200);
-  assert.deepEqual(after.body, { ok: true, ignored: true });
+  assert.deepEqual(after.body, { ok: true });
 });
 
 test("Unknown abbreviations, wrong Sites, invalid amounts, and multiple admins never stage a financial write", async () => {
