@@ -143,16 +143,83 @@ async function deliver(database, body, fetchImpl, secretToken = webhookSecret) {
   return handleTelegramWebhook({ body, secretToken, database, env: botEnv, fetchImpl, now: new Date() });
 }
 
-test("Telegram rejects invalid webhook tokens, unlinked accounts, and group chats", async () => {
+test("Telegram rejects invalid webhook tokens and acknowledges authenticated non-private updates", async () => {
   const database = telegramDb(); const calls = [];
   const badSecret = await deliver(database, telegramUpdate(), telegramFetch(calls), "wrong");
-  const unlinked = await deliver(database, telegramUpdate({ senderId: 789, updateId: 78 }), telegramFetch(calls));
   const group = await deliver(database, telegramUpdate({ chatType: "group", updateId: 79 }), telegramFetch(calls));
   assert.equal(badSecret.status, 401);
-  assert.equal(unlinked.status, 403);
-  assert.equal(group.status, 403);
+  assert.equal(group.status, 200);
+  assert.deepEqual(group.body, { ok: true, ignored: true });
   assert.equal(calls.length, 0);
   assert.equal(database.state.rpcCalls.length, 0);
+  assert.equal(database.state.tables.telegram_pending_advances.length, 0);
+});
+
+test("An unlinked private /start receives linking instructions without admin lookup", async () => {
+  const database = telegramDb({ linked: false }); const requests = [];
+  const result = await deliver(database, telegramUpdate({ senderId: 789, text: "/start", updateId: 780 }), telegramFetch(requests));
+  assert.equal(result.status, 200);
+  assert.ok(requests.some(item => item.method === "sendMessage" && /To link:/.test(item.body.text)));
+  assert.equal(database.state.queryCount, 0);
+  assert.equal(database.state.rpcCalls.length, 0);
+  assert.equal(database.state.tables.telegram_pending_advances.length, 0);
+});
+
+test("Unlinked private commands are acknowledged without executing protected handlers", async () => {
+  const database = telegramDb({ linked: false }); const requests = [];
+  const result = await deliver(database, telegramUpdate({ senderId: 789, text: "/newadvance", updateId: 781 }), telegramFetch(requests));
+  assert.equal(result.status, 200);
+  assert.deepEqual(result.body, { ok: true, ignored: true });
+  assert.equal(database.state.queryCount, 1); // Only the active Telegram-link lookup.
+  assert.equal(requests.length, 0);
+  assert.equal(database.state.tables.telegram_update_receipts.length, 0);
+  assert.equal(database.state.tables.telegram_wizard_sessions.length, 0);
+  assert.equal(database.state.tables.telegram_pending_advances.length, 0);
+  assert.equal(database.state.rpcCalls.length, 0);
+});
+
+test("A Supabase link lookup error remains retryable and is not mislabeled as an authorization 403", async () => {
+  const database = telegramDb();
+  const originalFrom = database.from;
+  database.from = table => {
+    if (table !== "telegram_admin_links") return originalFrom(table);
+    const query = { select() { return query; }, eq() { return query; }, is() { return query; }, async maybeSingle() { return { data: null, error: new Error("lookup unavailable") }; } };
+    return query;
+  };
+  const result = await deliver(database, telegramUpdate({ senderId: 789, text: "/dashboard", updateId: 783 }), telegramFetch([]));
+  assert.equal(result.status, 503);
+  assert.equal(database.state.rpcCalls.length, 0);
+  assert.equal(database.state.tables.telegram_pending_advances.length, 0);
+});
+
+test("Unlinked callback queries and repeated deliveries are acknowledged without side effects", async () => {
+  const database = telegramDb({ linked: false }); const requests = [];
+  const update = callbackUpdate({ senderId: 789, data: "confirm:pending-id", updateId: 782 });
+  const [first, replay] = await Promise.all([
+    deliver(database, update, telegramFetch(requests)),
+    deliver(database, update, telegramFetch(requests)),
+  ]);
+  assert.equal(first.status, 200);
+  assert.equal(replay.status, 200);
+  assert.deepEqual(first.body, { ok: true, ignored: true });
+  assert.deepEqual(replay.body, { ok: true, ignored: true });
+  assert.equal(database.state.rpcCalls.length, 0);
+  assert.equal(database.state.tables.telegram_pending_advances.length, 0);
+  assert.equal(database.state.tables.telegram_update_receipts.length, 0);
+  assert.equal(requests.length, 0);
+});
+
+test("Authenticated private messages with an invalid timestamp are acknowledged without processing", async () => {
+  const database = telegramDb(); const requests = [];
+  const update = telegramUpdate({ text: "/newadvance", updateId: 784 });
+  update.message.date = 0;
+  const result = await deliver(database, update, telegramFetch(requests));
+  assert.equal(result.status, 200);
+  assert.deepEqual(result.body, { ok: true, ignored: true });
+  assert.equal(database.state.tables.telegram_wizard_sessions.length, 0);
+  assert.equal(database.state.tables.telegram_pending_advances.length, 0);
+  assert.equal(database.state.rpcCalls.length, 0);
+  assert.equal(requests.length, 0);
 });
 
 test("Plain mixed-language advance input creates an unsaved preview with explicit edit and confirm actions", async () => {
@@ -228,7 +295,8 @@ test("One-time hashed account linking and /unlink work only for the single verif
   await deliver(database, telegramUpdate({ senderId: 789, text: "/unlink", updateId: 102 }), fetchImpl);
   assert.ok(database.state.tables.telegram_admin_links[0].revoked_at);
   const after = await deliver(database, telegramUpdate({ senderId: 789, text: "/dashboard", updateId: 103 }), fetchImpl);
-  assert.equal(after.status, 403);
+  assert.equal(after.status, 200);
+  assert.deepEqual(after.body, { ok: true, ignored: true });
 });
 
 test("Unknown abbreviations, wrong Sites, invalid amounts, and multiple admins never stage a financial write", async () => {

@@ -476,10 +476,13 @@ export async function handleTelegramWebhook({ body, secretToken, database, env =
   const sender = callback?.from || message?.from;
   const senderId = String(sender?.id ?? "");
   if (!Number.isSafeInteger(updateId) || updateId < 0 || !/^\d{1,20}$/.test(senderId) || message?.chat?.type !== "private" || String(message?.chat?.id ?? "") !== senderId) {
-    return { status: 403, body: { error: "Only verified private Telegram chats are allowed." } };
+    // The webhook secret authenticates Telegram. Unsupported or non-private updates
+    // must be acknowledged so Telegram does not retry them indefinitely, but they
+    // must never reach linking, command, or financial handlers.
+    return { status: 200, body: { ok: true, ignored: true } };
   }
   if (!callback && (!Number.isSafeInteger(message.date) || message.date <= 0 || message.date * 1000 > now.valueOf() + 5 * 60 * 1000)) {
-    return { status: 400, body: { error: "Telegram message timestamp is invalid." } };
+    return { status: 200, body: { ok: true, ignored: true } };
   }
 
   let claimedReceipt = false;
@@ -496,7 +499,9 @@ export async function handleTelegramWebhook({ body, secretToken, database, env =
     }
 
     const actorId = await activeLink(database, senderId);
-    if (!actorId) return { status: 403, body: { error: "Sender is not linked to the verified owner administrator." } };
+    // A valid Telegram delivery from an unlinked account is not an HTTP failure.
+    // Acknowledge it without running commands or creating financial side effects.
+    if (!actorId) return { status: 200, body: { ok: true, ignored: true } };
     const { error: receiptError } = await database.from("telegram_update_receipts").insert({ update_id: updateId, expires_at: new Date(now.valueOf() + 30 * 24 * 60 * 60 * 1000).toISOString() });
     if (receiptError?.code === "23505") {
       await reply({ fetchImpl, botToken, chatId: message.chat.id, text: "This Telegram update was already handled. Check the dashboard before retrying." }).catch(() => {});
